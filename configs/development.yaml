@@ -1,0 +1,89 @@
+# Development configuration for Federated DP-LLM Router
+server:
+  host: "0.0.0.0"
+  port: 8080
+  ssl_enabled: false
+  max_concurrent_requests: 100
+  request_timeout: 30.0
+
+privacy:
+  epsilon_per_query: 0.5  # More permissive for development
+  delta: 1.0e-4
+  max_budget_per_user: 50.0  # Higher budget for testing
+  noise_multiplier: 0.5  # Less noise for debugging
+  mechanism: "gaussian"
+  composition: "basic"
+  
+  department_budgets:
+    emergency: 100.0
+    cardiology: 75.0
+    radiology: 50.0
+    general: 25.0
+    research: 10.0
+
+routing:
+  strategy: "round_robin"  # Simpler for development
+  health_check_interval: 60
+  circuit_breaker:
+    failure_threshold: 10  # More tolerant
+    recovery_timeout: 30
+
+federation:
+  aggregation_protocol: "simple_averaging"
+  encryption_scheme: "none"  # Disabled for development
+  min_participants: 2  # Lower requirement
+
+security:
+  jwt_secret: "development-secret-key-not-secure"
+  token_expiry: 7200  # 2 hours for development
+  enable_mtls: false
+  enable_rate_limiting: false
+  
+  authentication:
+    method: "jwt"
+    password_policy:
+      min_length: 8  # Relaxed for development
+      require_uppercase: false
+      require_lowercase: false
+      require_numbers: false
+      require_special: false
+    max_failed_attempts: 10
+
+compliance:
+  frameworks: ["hipaa"]  # Simplified for development
+  audit_retention_days: 30
+  enable_real_time_monitoring: false
+
+monitoring:
+  enable_prometheus: true
+  prometheus_port: 8090
+  
+  logging:
+    level: "DEBUG"
+    format: "simple"
+    output: "console"
+    enable_privacy_filtering: false  # Disabled for debugging
+    enable_security_logging: false
+
+database:
+  type: "memory"  # In-memory for development
+
+storage:
+  type: "filesystem"
+  base_path: "./dev_data"
+  models_path: "./dev_models"
+  enable_encryption: false
+
+models:
+  default_model: "medllama-7b"
+  available_models:
+    - name: "medllama-7b"
+      type: "mock"  # Mock model for development
+      parameters: 7000000000
+      privacy_cost_multiplier: 0.5
+      
+deployment:
+  environment: "development"
+  resources:
+    cpu_limit: "2.0"
+    memory_limit: "4Gi"
