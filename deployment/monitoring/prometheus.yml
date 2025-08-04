@@ -1,0 +1,44 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "federated_dp_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Main federated router
+  - job_name: 'federated-router'
+    static_configs:
+      - targets: ['federated-router:8090']
+    scrape_interval: 10s
+    metrics_path: /metrics
+    
+  # Hospital nodes
+  - job_name: 'hospital-nodes'
+    static_configs:
+      - targets: 
+        - 'hospital-node-1:8090'
+        - 'hospital-node-2:8090'
+        - 'hospital-node-3:8090'
+    scrape_interval: 15s
+    
+  # System metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    
+  # Redis metrics  
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    
+  # Nginx metrics
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']

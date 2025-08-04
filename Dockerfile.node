@@ -1,0 +1,44 @@
+# Hospital Node Dockerfile
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH="/app"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN adduser --disabled-password --gecos '' appuser
+
+# Set work directory
+WORKDIR /app
+
+# Copy requirements and install
+COPY requirements*.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY --chown=appuser:appuser . .
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/data && \
+    chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8443/health || exit 1
+
+# Expose port
+EXPOSE 8443
+
+# Hospital node startup script
+COPY --chown=appuser:appuser scripts/start_node.py /app/scripts/
+CMD ["python", "scripts/start_node.py"]

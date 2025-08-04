@@ -1,0 +1,174 @@
+version: '3.8'
+
+services:
+  # Main Federated Router
+  federated-router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+      - "8090:8090"  # Prometheus metrics
+    environment:
+      - FEDERATED_CONFIG_FILE=/app/configs/router_config.yaml
+      - PYTHONPATH=/app
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./configs:/app/configs
+      - ./logs:/app/logs
+      - federated-models:/app/models
+    depends_on:
+      - redis
+      - prometheus
+    networks:
+      - federated-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for caching and session storage
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - federated-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployment/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - federated-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=redis-datasource,prometheus
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deployment/monitoring/grafana:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - federated-network
+
+  # Hospital Node Simulator 1
+  hospital-node-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    ports:
+      - "8441:8443"
+    environment:
+      - NODE_ID=hospital_a
+      - NODE_ENDPOINT=https://hospital-node-1:8443
+      - COORDINATOR_ENDPOINT=https://federated-router:8080
+      - DEPARTMENT=cardiology
+      - DATA_SIZE=50000
+      - COMPUTE_CAPACITY=4xA100
+    volumes:
+      - ./configs:/app/configs
+      - node1-data:/app/data
+    networks:
+      - federated-network
+    depends_on:
+      - federated-router
+
+  # Hospital Node Simulator 2
+  hospital-node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    ports:
+      - "8442:8443"
+    environment:
+      - NODE_ID=hospital_b
+      - NODE_ENDPOINT=https://hospital-node-2:8443
+      - COORDINATOR_ENDPOINT=https://federated-router:8080
+      - DEPARTMENT=emergency
+      - DATA_SIZE=75000
+      - COMPUTE_CAPACITY=8xA100
+    volumes:
+      - ./configs:/app/configs
+      - node2-data:/app/data
+    networks:
+      - federated-network
+    depends_on:
+      - federated-router
+
+  # Hospital Node Simulator 3
+  hospital-node-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    ports:
+      - "8443:8443"
+    environment:
+      - NODE_ID=hospital_c
+      - NODE_ENDPOINT=https://hospital-node-3:8443
+      - COORDINATOR_ENDPOINT=https://federated-router:8080
+      - DEPARTMENT=radiology
+      - DATA_SIZE=30000
+      - COMPUTE_CAPACITY=2xV100
+    volumes:
+      - ./configs:/app/configs
+      - node3-data:/app/data
+    networks:
+      - federated-network
+    depends_on:
+      - federated-router
+
+  # Nginx Load Balancer
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deployment/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./deployment/ssl:/etc/nginx/ssl
+    depends_on:
+      - federated-router
+    networks:
+      - federated-network
+
+networks:
+  federated-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  federated-models:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+  node1-data:
+  node2-data:
+  node3-data:

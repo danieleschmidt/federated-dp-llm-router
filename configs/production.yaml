@@ -1,0 +1,174 @@
+# Production configuration for Federated DP-LLM Router
+server:
+  host: "0.0.0.0"
+  port: 8080
+  ssl_enabled: true
+  ssl_cert_file: "/app/ssl/server.crt"
+  ssl_key_file: "/app/ssl/server.key"
+  max_concurrent_requests: 1000
+  request_timeout: 60.0
+  
+privacy:
+  epsilon_per_query: 0.1
+  delta: 1.0e-5
+  max_budget_per_user: 10.0
+  noise_multiplier: 1.1
+  clip_norm: 1.0
+  mechanism: "gaussian"
+  composition: "rdp"
+  
+  # Department-specific budgets
+  department_budgets:
+    emergency: 20.0
+    cardiology: 15.0
+    oncology: 15.0
+    radiology: 10.0
+    neurology: 10.0
+    general: 5.0
+    research: 2.0
+
+routing:
+  strategy: "privacy_aware"
+  load_balancing_algorithm: "weighted_round_robin"
+  health_check_interval: 30
+  circuit_breaker:
+    failure_threshold: 5
+    recovery_timeout: 60
+    expected_exceptions: ["PrivacyBudgetExceeded", "NodeUnavailable"]
+
+federation:
+  aggregation_protocol: "secure_aggregation"
+  encryption_scheme: "homomorphic"
+  consensus_algorithm: "byzantine_fault_tolerant"
+  max_byzantine_nodes: 1
+  min_participants: 3
+  round_timeout: 300
+
+security:
+  jwt_secret: "${JWT_SECRET}"
+  jwt_algorithm: "HS256"
+  token_expiry: 3600
+  refresh_token_expiry: 604800  # 7 days
+  enable_mtls: true
+  mtls_ca_cert: "/app/ssl/ca.crt"
+  enable_rate_limiting: true
+  rate_limit:
+    requests_per_minute: 60
+    burst_size: 10
+  
+  # Authentication
+  authentication:
+    method: "jwt"
+    password_policy:
+      min_length: 12
+      require_uppercase: true
+      require_lowercase: true
+      require_numbers: true
+      require_special: true
+    session_timeout: 3600
+    max_failed_attempts: 5
+    lockout_duration: 1800
+
+compliance:
+  frameworks: ["hipaa", "gdpr", "ccpa"]
+  audit_retention_days: 2555  # 7 years for HIPAA
+  enable_real_time_monitoring: true
+  enable_compliance_dashboard: true
+  
+  # HIPAA specific settings
+  hipaa:
+    enable_minimum_necessary: true
+    require_authorization: true
+    enable_audit_logs: true
+    encryption_at_rest: true
+    encryption_in_transit: true
+  
+  # GDPR specific settings  
+  gdpr:
+    enable_data_minimization: true
+    enable_consent_management: true
+    data_retention_days: 365
+    enable_right_to_erasure: true
+
+monitoring:
+  enable_prometheus: true
+  prometheus_port: 8090
+  metrics_retention: "15d"
+  enable_health_checks: true
+  health_check_port: 8091
+  
+  logging:
+    level: "INFO"
+    format: "structured"
+    output: "both"
+    log_file: "/app/logs/federated_dp_llm.log"
+    audit_log_file: "/app/logs/audit.log"
+    max_file_size: 104857600  # 100MB
+    backup_count: 10
+    enable_privacy_filtering: true
+    enable_security_logging: true
+
+database:
+  type: "redis"
+  redis:
+    host: "redis"
+    port: 6379
+    db: 0
+    password: "${REDIS_PASSWORD}"
+    ssl: false
+    connection_pool_size: 20
+    socket_timeout: 5.0
+
+storage:
+  type: "filesystem"
+  base_path: "/app/data"
+  models_path: "/app/models"
+  checkpoints_path: "/app/checkpoints"
+  enable_encryption: true
+  encryption_key: "${STORAGE_ENCRYPTION_KEY}"
+
+# Model configuration
+models:
+  default_model: "medllama-7b"
+  available_models:
+    - name: "medllama-7b"
+      type: "transformer"
+      parameters: 7000000000
+      privacy_cost_multiplier: 1.0
+      max_context_length: 4096
+      specializations: ["healthcare", "clinical_notes"]
+      
+    - name: "bioclinical-13b"
+      type: "transformer" 
+      parameters: 13000000000
+      privacy_cost_multiplier: 1.5
+      max_context_length: 8192
+      specializations: ["biomedical", "research"]
+
+# Deployment specific settings
+deployment:
+  environment: "production"
+  instance_id: "${INSTANCE_ID}"
+  region: "${DEPLOYMENT_REGION}"
+  availability_zone: "${AVAILABILITY_ZONE}"
+  
+  # Resource limits
+  resources:
+    cpu_limit: "4.0"
+    memory_limit: "8Gi"
+    gpu_limit: "1"
+    
+  # Scaling configuration
+  scaling:
+    min_replicas: 2
+    max_replicas: 10
+    target_cpu_utilization: 70
+    target_memory_utilization: 80
+    
+  # Network configuration
+  network:
+    allowed_subnets:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+    enable_network_policies: true

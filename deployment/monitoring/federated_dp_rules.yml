@@ -1,0 +1,114 @@
+groups:
+- name: federated_dp_privacy_alerts
+  rules:
+  # High privacy budget consumption
+  - alert: HighPrivacyBudgetConsumption
+    expr: rate(privacy_budget_spent_total[5m]) > 0.5
+    for: 2m
+    labels:
+      severity: warning
+      component: privacy
+    annotations:
+      summary: "High privacy budget consumption detected"
+      description: "Privacy budget consumption rate is {{ $value }} epsilon per 5 minutes for department {{ $labels.department }}"
+
+  # Privacy budget depletion warning
+  - alert: PrivacyBudgetDepletion
+    expr: privacy_budget_remaining < 2.0
+    for: 1m
+    labels:
+      severity: warning
+      component: privacy
+    annotations:
+      summary: "Privacy budget running low"
+      description: "Department {{ $labels.department }} has only {{ $value }} epsilon remaining"
+
+  # Critical privacy budget depletion
+  - alert: CriticalPrivacyBudgetDepletion
+    expr: privacy_budget_remaining < 0.5
+    for: 0m
+    labels:
+      severity: critical
+      component: privacy
+    annotations:
+      summary: "Critical privacy budget depletion"
+      description: "Department {{ $labels.department }} has critically low privacy budget: {{ $value }} epsilon"
+
+- name: federated_dp_performance_alerts
+  rules:
+  # High inference latency
+  - alert: HighInferenceLatency
+    expr: histogram_quantile(0.95, rate(inference_latency_seconds_bucket[5m])) > 10
+    for: 2m
+    labels:
+      severity: warning
+      component: performance
+    annotations:
+      summary: "High inference latency detected"
+      description: "95th percentile inference latency is {{ $value }}s for model {{ $labels.model_name }}"
+
+  # Node health issues
+  - alert: NodeUnhealthy
+    expr: node_health_status == 0
+    for: 1m
+    labels:
+      severity: critical
+      component: infrastructure
+    annotations:
+      summary: "Federated node is unhealthy"
+      description: "Node {{ $labels.node_id }} in department {{ $labels.department }} is reporting unhealthy status"
+
+  # High active requests
+  - alert: HighActiveRequests
+    expr: active_requests > 50
+    for: 5m
+    labels:
+      severity: warning
+      component: performance
+    annotations:
+      summary: "High number of active requests"
+      description: "Currently {{ $value }} active inference requests, possible bottleneck"
+
+- name: federated_dp_system_alerts  
+  rules:
+  # Federated training failures
+  - alert: FederatedTrainingFailures
+    expr: increase(federated_training_rounds_total{status="failed"}[1h]) > 2
+    for: 0m
+    labels:
+      severity: warning
+      component: training
+    annotations:
+      summary: "Multiple federated training failures"
+      description: "{{ $value }} federated training rounds failed in the last hour for model {{ $labels.model_name }}"
+
+  # System resource alerts
+  - alert: HighMemoryUsage
+    expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+    for: 2m
+    labels:
+      severity: warning
+      component: system
+    annotations:
+      summary: "High memory usage"
+      description: "Memory usage is above 85%: {{ $value }}%"
+
+  - alert: HighCPUUsage
+    expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+    for: 5m
+    labels:
+      severity: warning
+      component: system
+    annotations:
+      summary: "High CPU usage"
+      description: "CPU usage is above 80%: {{ $value }}%"
+
+  - alert: HighDiskUsage
+    expr: (1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100 > 85
+    for: 2m
+    labels:
+      severity: warning
+      component: system
+    annotations:
+      summary: "High disk usage"
+      description: "Disk usage is above 85%: {{ $value }}%"
