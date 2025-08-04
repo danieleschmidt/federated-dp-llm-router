@@ -432,7 +432,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. Key areas:
 ```bibtex
 @article{federated_dp_llm_2025,
   title={Privacy-Preserving Federated LLM Routing for Healthcare},
-  author={Your Name et al.},
+  author={Daniel Schmidt},
   journal={Journal of Medical AI},
   year={2025}
 }
