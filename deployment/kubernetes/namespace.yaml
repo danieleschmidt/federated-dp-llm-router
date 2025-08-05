@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: federated-dp-llm
+  labels:
+    name: federated-dp-llm
+    environment: production
+    security.compliance/hipaa: "true"
+    security.compliance/gdpr: "true"
+  annotations:
+    description: "Federated DP-LLM system for healthcare applications"
+    compliance.regulations: "HIPAA,GDPR,CCPA"
+    security.policy: "high"
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: federated-dp-llm-quota
+  namespace: federated-dp-llm
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "50"
+    limits.memory: 100Gi
+    requests.storage: 500Gi
+    persistentvolumeclaims: "10"
+    pods: "50"
+    services: "20"
+    secrets: "20"
+    configmaps: "20"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: federated-dp-llm-limits
+  namespace: federated-dp-llm
+spec:
+  limits:
+  - default:
+      cpu: "1000m"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+    type: Container
+  - default:
+      storage: "10Gi"
+    type: PersistentVolumeClaim
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: federated-dp-llm
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: federated-dp-llm
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
