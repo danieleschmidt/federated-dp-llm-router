@@ -14,6 +14,17 @@ from .routing.load_balancer import FederatedRouter
 from .federation.client import HospitalNode, PrivateInferenceClient
 from .federation.server import FederatedTrainer
 from .security.compliance import BudgetManager
+from .quantum_planning import (
+    QuantumTaskPlanner,
+    QuantumState,
+    TaskPriority,
+    SuperpositionScheduler,
+    TaskSuperposition,
+    EntanglementOptimizer,
+    ResourceEntanglement,
+    InterferenceBalancer,
+    TaskInterference
+)
 
 __all__ = [
     "PrivacyAccountant",
@@ -23,4 +34,13 @@ __all__ = [
     "PrivateInferenceClient", 
     "FederatedTrainer",
     "BudgetManager",
+    "QuantumTaskPlanner",
+    "QuantumState",
+    "TaskPriority", 
+    "SuperpositionScheduler",
+    "TaskSuperposition",
+    "EntanglementOptimizer",
+    "ResourceEntanglement",
+    "InterferenceBalancer",
+    "TaskInterference",
 ]
