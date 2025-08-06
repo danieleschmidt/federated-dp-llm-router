@@ -1,0 +1,74 @@
+# Multi-stage production Dockerfile for Quantum-Enhanced Federated LLM Router
+FROM python:3.11-slim as builder
+
+# Install system dependencies for building
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements*.txt ./
+COPY setup.py ./
+COPY README.md ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements-security.txt && \
+    pip install --no-cache-dir -r requirements-dev.txt
+
+# Production stage
+FROM python:3.11-slim as production
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r quantum && useradd -r -g quantum quantum
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Set working directory
+WORKDIR /app
+
+# Copy application code
+COPY federated_dp_llm/ ./federated_dp_llm/
+COPY configs/ ./configs/
+COPY deployment/monitoring/ ./monitoring/
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/data /app/models /app/keys && \
+    chown -R quantum:quantum /app
+
+# Copy and set permissions for startup script
+COPY deployment/scripts/start-quantum-node.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/start-quantum-node.sh
+
+# Switch to non-root user
+USER quantum
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Environment variables
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    QUANTUM_CONFIG_PATH=/app/configs/production.yaml \
+    LOG_LEVEL=INFO \
+    WORKERS=4
+
+# Expose ports
+EXPOSE 8080 8443 9090
+
+# Use startup script
+CMD ["start-quantum-node.sh"]

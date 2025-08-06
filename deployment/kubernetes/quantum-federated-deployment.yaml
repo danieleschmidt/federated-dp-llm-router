@@ -1,0 +1,341 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quantum-federated-llm
+  labels:
+    name: quantum-federated-llm
+    security-level: restricted
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quantum-config
+  namespace: quantum-federated-llm
+data:
+  production.yaml: |
+    quantum_planning:
+      enable_superposition: true
+      enable_entanglement: true
+      enable_interference: true
+      coherence_threshold: 0.8
+      max_entangled_tasks: 5
+      optimization_strategy: "adaptive"
+      
+    privacy:
+      epsilon_per_query: 0.1
+      delta: 1.0e-5
+      max_budget_per_user: 10.0
+      composition_method: "rdp"
+      
+    security:
+      enable_encryption: true
+      enable_audit_trail: true
+      security_level: "confidential"
+      enable_quantum_signatures: true
+      
+    performance:
+      enable_auto_scaling: true
+      enable_caching: true
+      optimization_interval: 30
+      max_workers: 4
+      
+    monitoring:
+      enable_metrics: true
+      enable_alerts: true
+      collection_interval: 10
+      retention_hours: 168
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: quantum-secrets
+  namespace: quantum-federated-llm
+type: Opaque
+data:
+  master_key: UXVhbnR1bS1FbmhhbmNlZC1NYXN0ZXItS2V5LUNoYW5nZS1UaGlzIQ==
+  jwt_secret: UXVhbnR1bS1KV1QtU2VjcmV0LUNoYW5nZS1UaGlzLVRvby1QbGVhc2Uh
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quantum-federated-router
+  namespace: quantum-federated-llm
+  labels:
+    app: quantum-federated-router
+    version: v1.0.0
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: quantum-federated-router
+  template:
+    metadata:
+      labels:
+        app: quantum-federated-router
+        security-level: confidential
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: quantum-federated-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: quantum-router
+        image: quantum-federated-llm:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: https
+          containerPort: 8443
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        env:
+        - name: QUANTUM_CONFIG_PATH
+          value: "/app/configs/production.yaml"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: WORKERS
+          value: "4"
+        - name: PYTHONPATH
+          value: "/app"
+        - name: MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: quantum-secrets
+              key: master_key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: quantum-secrets
+              key: jwt_secret
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/configs
+        - name: quantum-keys
+          mountPath: /app/keys
+          readOnly: true
+        - name: logs
+          mountPath: /app/logs
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /startup
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+      volumes:
+      - name: config-volume
+        configMap:
+          name: quantum-config
+      - name: quantum-keys
+        secret:
+          secretName: quantum-tls-certs
+          defaultMode: 0600
+      - name: logs
+        emptyDir:
+          sizeLimit: 10Gi
+      nodeSelector:
+        node-role.kubernetes.io/worker: "true"
+      tolerations:
+      - key: "quantum-workload"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - quantum-federated-router
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quantum-federated-service
+  namespace: quantum-federated-llm
+  labels:
+    app: quantum-federated-router
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: https
+    port: 8443
+    targetPort: 8443
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: quantum-federated-router
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quantum-federated-sa
+  namespace: quantum-federated-llm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: quantum-federated-llm
+  name: quantum-federated-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: quantum-federated-binding
+  namespace: quantum-federated-llm
+subjects:
+- kind: ServiceAccount
+  name: quantum-federated-sa
+  namespace: quantum-federated-llm
+roleRef:
+  kind: Role
+  name: quantum-federated-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: quantum-federated-netpol
+  namespace: quantum-federated-llm
+spec:
+  podSelector:
+    matchLabels:
+      app: quantum-federated-router
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: quantum-federated-llm
+    - podSelector:
+        matchLabels:
+          app: quantum-federated-client
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8443
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: quantum-federated-llm
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8443
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: quantum-federated-hpa
+  namespace: quantum-federated-llm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: quantum-federated-router
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: quantum_coherence_utilization
+      target:
+        type: AverageValue
+        averageValue: "0.8"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
