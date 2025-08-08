@@ -12,10 +12,17 @@ import time
 from typing import Dict, List, Optional, Any, Union, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
-import redis.asyncio as redis
 import pickle
 from abc import ABC, abstractmethod
 import logging
+
+# Conditional redis import
+try:
+    import redis.asyncio as redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    redis = None
+    REDIS_AVAILABLE = False
 
 
 class CacheLevel(Enum):
@@ -189,13 +196,16 @@ class RedisCache(CacheBackend):
     
     def __init__(self, redis_url: str = "redis://localhost:6379", 
                  prefix: str = "federated_dp:", default_ttl: int = 3600):
+        if not REDIS_AVAILABLE:
+            raise RuntimeError("Redis not available. Install redis-py to use Redis caching.")
+        
         self.redis_url = redis_url
         self.prefix = prefix
         self.default_ttl = default_ttl
-        self.redis_client: Optional[redis.Redis] = None
+        self.redis_client: Optional['redis.Redis'] = None
         self.logger = logging.getLogger(__name__)
     
-    async def _get_client(self) -> redis.Redis:
+    async def _get_client(self) -> 'redis.Redis':
         """Get Redis client, creating if necessary."""
         if self.redis_client is None:
             self.redis_client = redis.from_url(
@@ -404,13 +414,15 @@ class CacheManager:
             )
         
         # L2 Redis cache
-        if self.config.get("enable_redis_cache", True):
+        if self.config.get("enable_redis_cache", True) and REDIS_AVAILABLE:
             redis_config = self.config.get("redis_cache", {})
             self.backends[CacheLevel.L2_REDIS] = RedisCache(
                 redis_url=redis_config.get("url", "redis://localhost:6379"),
                 prefix=redis_config.get("prefix", "federated_dp:"),
                 default_ttl=redis_config.get("default_ttl", 3600)
             )
+        elif self.config.get("enable_redis_cache", True) and not REDIS_AVAILABLE:
+            self.logger.warning("Redis cache requested but redis-py not available. Falling back to memory cache only.")
     
     def _make_cache_key(self, key: str, namespace: str = "default") -> str:
         """Create cache key with namespace."""

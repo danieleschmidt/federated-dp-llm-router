@@ -12,8 +12,15 @@ from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
-import psutil
 import threading
+
+# Conditional psutil import
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 
 class HealthStatus(Enum):
@@ -285,6 +292,13 @@ class HealthChecker:
     
     def _check_memory(self) -> Dict[str, Any]:
         """Check system memory usage."""
+        if not PSUTIL_AVAILABLE:
+            return {
+                "status": HealthStatus.UNKNOWN,
+                "message": "psutil not available - cannot check memory usage",
+                "details": {}
+            }
+        
         memory = psutil.virtual_memory()
         
         # Determine status based on usage
@@ -310,6 +324,13 @@ class HealthChecker:
     
     def _check_cpu(self) -> Dict[str, Any]:
         """Check system CPU usage."""
+        if not PSUTIL_AVAILABLE:
+            return {
+                "status": HealthStatus.UNKNOWN,
+                "message": "psutil not available - cannot check CPU usage",
+                "details": {}
+            }
+        
         cpu_percent = psutil.cpu_percent(interval=1)
         cpu_count = psutil.cpu_count()
         
@@ -335,6 +356,13 @@ class HealthChecker:
     
     def _check_disk(self) -> Dict[str, Any]:
         """Check system disk usage."""
+        if not PSUTIL_AVAILABLE:
+            return {
+                "status": HealthStatus.UNKNOWN,
+                "message": "psutil not available - cannot check disk usage",
+                "details": {}
+            }
+        
         disk = psutil.disk_usage('/')
         
         # Determine status based on usage

@@ -11,9 +11,20 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from collections import defaultdict, deque
 import json
-from prometheus_client import Counter, Histogram, Gauge, Info, start_http_server
 import asyncio
 import logging
+
+# Conditional prometheus import
+try:
+    from prometheus_client import Counter, Histogram, Gauge, Info, start_http_server
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    Counter = None
+    Histogram = None
+    Gauge = None
+    Info = None
+    start_http_server = None
+    PROMETHEUS_AVAILABLE = False
 
 
 @dataclass
@@ -52,8 +63,10 @@ class MetricsCollector:
         self._stats_lock = threading.Lock()
         
         # Prometheus metrics
-        if enable_prometheus:
+        if enable_prometheus and PROMETHEUS_AVAILABLE:
             self._setup_prometheus_metrics()
+        elif enable_prometheus and not PROMETHEUS_AVAILABLE:
+            logging.getLogger(__name__).warning("Prometheus metrics requested but prometheus_client not available.")
             
         # Logger
         self.logger = logging.getLogger(__name__)
@@ -121,7 +134,7 @@ class MetricsCollector:
         with self._privacy_lock:
             self.privacy_metrics.append(metric)
         
-        if self.enable_prometheus:
+        if self.enable_prometheus and PROMETHEUS_AVAILABLE:
             self.privacy_budget_spent.labels(
                 user_id=metric.user_id,
                 department=metric.department,
@@ -142,7 +155,7 @@ class MetricsCollector:
         with self._performance_lock:
             self.performance_metrics.append(metric)
         
-        if self.enable_prometheus and metric.metric_name == "inference_latency":
+        if self.enable_prometheus and PROMETHEUS_AVAILABLE and metric.metric_name == "inference_latency":
             self.inference_latency.labels(
                 model_name=metric.labels.get('model_name', 'unknown'),
                 node_id=metric.labels.get('node_id', 'unknown'),
@@ -262,6 +275,9 @@ class MetricsCollector:
         """Start Prometheus metrics server."""
         if not self.enable_prometheus:
             raise RuntimeError("Prometheus not enabled")
+        
+        if not PROMETHEUS_AVAILABLE:
+            raise RuntimeError("prometheus_client not available. Install prometheus_client to use metrics server.")
         
         start_http_server(port)
         self.logger.info(f"Prometheus metrics server started on port {port}")

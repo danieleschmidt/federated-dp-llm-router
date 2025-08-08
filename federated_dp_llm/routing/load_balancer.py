@@ -12,7 +12,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 import numpy as np
 from ..core.privacy_accountant import PrivacyAccountant, DPConfig
-from ..core.model_sharding import ModelSharder, ShardingStrategy
+
+# Conditional imports for model sharding (requires torch)
+try:
+    from ..core.model_sharding import ModelSharder, ShardingStrategy
+    MODEL_SHARDING_AVAILABLE = True
+except ImportError:
+    ModelSharder = None
+    ShardingStrategy = None
+    MODEL_SHARDING_AVAILABLE = False
+
 from ..quantum_planning.quantum_planner import QuantumTaskPlanner, QuantumTask, TaskPriority
 from ..quantum_planning.superposition_scheduler import SuperpositionScheduler, TaskSuperposition
 from ..quantum_planning.entanglement_optimizer import EntanglementOptimizer, EntanglementType
@@ -149,7 +158,7 @@ class FederatedRouter:
         
         # Initialize components
         self.nodes: Dict[str, NodeCapability] = {}
-        self.model_sharder = ModelSharder(model_name)
+        self.model_sharder = ModelSharder(model_name) if MODEL_SHARDING_AVAILABLE else None
         self.load_tracker = NodeLoadTracker()
         self.privacy_accountant = PrivacyAccountant(DPConfig())
         
