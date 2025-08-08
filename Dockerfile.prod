@@ -1,0 +1,54 @@
+# Production Dockerfile for Federated DP-LLM Router
+FROM python:3.11-slim
+
+# Set security and performance environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NODE_ENV=production
+
+# Create non-root user for security
+RUN groupadd -r feduser && useradd -r -g feduser feduser
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create application directory
+WORKDIR /app
+
+# Copy requirements first for better layer caching
+COPY requirements.txt .
+COPY requirements-prod.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements-prod.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/ssl /app/config && \
+    chown -R feduser:feduser /app
+
+# Remove development files and test data
+RUN rm -rf tests/ test_* validate_* simple_validation.py quality_gates.py
+
+# Switch to non-root user
+USER feduser
+
+# Expose ports
+EXPOSE 8080 8443
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f https://localhost:8443/health || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["python", "-m", "federated_dp_llm.cli", "server", "start"]
+CMD ["--config", "/app/config/production.yaml", "--port", "8080"]
