@@ -1,8 +1,9 @@
 """
-Health Check System
+Enhanced Health Check System with Self-Healing
 
 Implements comprehensive health checks for federated nodes, system components,
-and overall system health monitoring with circuit breakers.
+and overall system health monitoring with circuit breakers, auto-remediation,
+and predictive failure detection for Generation 2 robustness.
 """
 
 import asyncio

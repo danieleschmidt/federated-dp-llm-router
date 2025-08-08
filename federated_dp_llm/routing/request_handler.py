@@ -62,7 +62,7 @@ class UserClaims(BaseModel):
 class RequestHandler:
     """Main HTTP request handler for federated inference."""
     
-    def __init__(self, router: FederatedRouter, jwt_secret: str = "your-secret-key"):
+    def __init__(self, router: FederatedRouter, jwt_secret: str):
         self.router = router
         self.jwt_secret = jwt_secret
         self.app = FastAPI(

@@ -1,6 +1,302 @@
-# Federated DP-LLM Deployment Guide
+# Production Deployment Guide
 
-This guide provides comprehensive instructions for deploying the Federated Differential Privacy LLM system in production environments.
+## Prerequisites
+
+### System Requirements
+- Docker Engine 20.10+
+- Docker Compose 2.0+
+- Minimum 8GB RAM
+- 50GB+ storage space
+- SSL certificates for HTTPS
+
+### Security Requirements
+- Generate strong encryption keys
+- Configure SSL/TLS certificates
+- Set up firewall rules
+- Configure network security
+
+## Quick Start
+
+### 1. Clone and Setup
+
+```bash
+git clone <repository-url>
+cd federated-dp-llm-router
+```
+
+### 2. Configure Environment
+
+```bash
+# Copy environment template
+cp .env.production.example .env.production
+
+# Edit with your secure values
+nano .env.production
+```
+
+**CRITICAL: Set these environment variables:**
+```bash
+# Generate a secure JWT secret (minimum 32 characters)
+JWT_SECRET_KEY=$(openssl rand -base64 32)
+
+# Generate master encryption key
+HIPAA_MASTER_KEY=$(openssl rand -base64 64)
+
+# Set strong database passwords
+POSTGRES_PASSWORD=$(openssl rand -base64 32)
+REDIS_PASSWORD=$(openssl rand -base64 32)
+GRAFANA_PASSWORD=$(openssl rand -base64 32)
+```
+
+### 3. SSL Certificate Setup
+
+```bash
+# Create SSL directory
+mkdir -p ssl
+
+# Generate self-signed certificates (for testing)
+openssl req -x509 -newkey rsa:4096 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes
+
+# For production, use certificates from a trusted CA
+# Place your certificates in:
+# - ssl/cert.pem (certificate)
+# - ssl/key.pem (private key)
+# - ssl/ca.pem (certificate authority)
+```
+
+### 4. Deploy Services
+
+```bash
+# Start all services
+docker-compose -f docker-compose.prod.yml up -d
+
+# Check service status
+docker-compose -f docker-compose.prod.yml ps
+
+# View logs
+docker-compose -f docker-compose.prod.yml logs -f federated-router
+```
+
+### 5. Initialize System
+
+```bash
+# Run quality gates to verify deployment
+docker exec federated-dp-llm-router python quality_gates.py
+
+# Check health endpoints
+curl -k https://localhost:8443/health
+```
+
+## Service URLs
+
+- **Main API**: https://localhost:8443
+- **Health Check**: https://localhost:8443/health
+- **API Documentation**: https://localhost:8443/docs
+- **Grafana Dashboard**: http://localhost:3000
+- **Prometheus Metrics**: http://localhost:9090
+- **Kibana Logs**: http://localhost:5601
+
+## Security Configuration
+
+### 1. Firewall Rules
+
+```bash
+# Allow only necessary ports
+sudo ufw allow 22/tcp          # SSH
+sudo ufw allow 80/tcp          # HTTP (redirect to HTTPS)
+sudo ufw allow 443/tcp         # HTTPS
+sudo ufw allow 8443/tcp        # Application HTTPS
+sudo ufw enable
+```
+
+### 2. Network Security
+
+```yaml
+# Update docker-compose.prod.yml networks as needed
+networks:
+  federated-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+```
+
+### 3. Access Control
+
+```bash
+# Create admin user
+docker exec -it federated-dp-llm-router python -c "
+from federated_dp_llm.security.access_control import get_access_control_manager, Role
+manager = get_access_control_manager()
+user, msg = manager.create_user(
+    username='admin',
+    email='admin@yourorganization.com',
+    password='YourSecurePassword123!',
+    department='administration',
+    roles=[Role.SYSTEM_ADMIN]
+)
+print(f'Admin user created: {msg}')
+"
+```
+
+## Monitoring and Maintenance
+
+### 1. Health Monitoring
+
+```bash
+# Check system health
+curl -k https://localhost:8443/health
+
+# Monitor container health
+docker-compose -f docker-compose.prod.yml ps
+
+# View resource usage
+docker stats
+```
+
+### 2. Log Management
+
+```bash
+# View application logs
+docker-compose -f docker-compose.prod.yml logs federated-router
+
+# View audit logs
+docker exec federated-dp-llm-router ls -la /app/logs/
+
+# Rotate logs (setup cron job)
+docker exec federated-dp-llm-router logrotate /etc/logrotate.conf
+```
+
+### 3. Backup Procedures
+
+```bash
+# Database backup
+docker exec federated-postgres pg_dump -U feduser federated_dp_llm > backup_$(date +%Y%m%d).sql
+
+# Volume backup
+docker run --rm -v federated-dp-llm_postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres_backup_$(date +%Y%m%d).tar.gz /data
+```
+
+### 4. Security Scanning
+
+```bash
+# Run container vulnerability scan
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image federated-dp-llm-router:latest
+
+# Run quality gates
+docker exec federated-dp-llm-router python quality_gates.py
+```
+
+## Compliance and Auditing
+
+### 1. HIPAA Compliance Checklist
+
+- [x] Encryption at rest and in transit
+- [x] Access controls and authentication
+- [x] Audit logging enabled
+- [x] Data minimization implemented
+- [x] Backup and recovery procedures
+- [x] Security incident response plan
+
+### 2. Audit Log Retention
+
+```bash
+# Check audit log retention
+docker exec federated-postgres psql -U feduser -d federated_dp_llm -c "
+SELECT 
+    COUNT(*) as total_events,
+    MIN(timestamp) as oldest_event,
+    MAX(timestamp) as newest_event
+FROM audit_events;
+"
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **SSL Certificate Errors**
+   ```bash
+   # Check certificate validity
+   openssl x509 -in ssl/cert.pem -text -noout
+   
+   # Verify certificate chain
+   openssl verify -CAfile ssl/ca.pem ssl/cert.pem
+   ```
+
+2. **Database Connection Issues**
+   ```bash
+   # Check database connectivity
+   docker exec federated-postgres pg_isready -U feduser
+   
+   # Check database logs
+   docker-compose -f docker-compose.prod.yml logs postgres
+   ```
+
+3. **Memory Issues**
+   ```bash
+   # Check memory usage
+   docker stats --no-stream
+   
+   # Adjust memory limits in docker-compose.prod.yml
+   deploy:
+     resources:
+       limits:
+         memory: 8G
+   ```
+
+### Performance Optimization
+
+1. **Scale Services**
+   ```bash
+   # Scale application instances
+   docker-compose -f docker-compose.prod.yml up -d --scale federated-router=3
+   ```
+
+2. **Database Optimization**
+   ```sql
+   -- Connect to database and optimize
+   docker exec -it federated-postgres psql -U feduser -d federated_dp_llm
+   
+   -- Create indexes for better performance
+   CREATE INDEX idx_audit_timestamp ON audit_events(timestamp);
+   CREATE INDEX idx_privacy_user_id ON privacy_budget(user_id);
+   ```
+
+## Updates and Maintenance
+
+### 1. Application Updates
+
+```bash
+# Pull latest changes
+git pull origin main
+
+# Rebuild and deploy
+docker-compose -f docker-compose.prod.yml build
+docker-compose -f docker-compose.prod.yml up -d
+
+# Run quality gates after update
+docker exec federated-dp-llm-router python quality_gates.py
+```
+
+### 2. Security Updates
+
+```bash
+# Update base images
+docker-compose -f docker-compose.prod.yml pull
+
+# Update system packages
+docker-compose -f docker-compose.prod.yml build --no-cache
+```
+
+## Support and Documentation
+
+- **API Documentation**: https://localhost:8443/docs
+- **System Logs**: `/app/logs/`
+- **Configuration**: `/app/config/production.yaml`
+- **SSL Certificates**: `/app/ssl/`
+
+For additional support, check the monitoring dashboards and audit logs for detailed system information.
 
 ## Table of Contents
 

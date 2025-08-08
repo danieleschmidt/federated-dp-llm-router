@@ -1,0 +1,101 @@
+# Production Configuration for Federated DP-LLM Router
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  ssl_enabled: true
+  ssl_cert_file: "/app/ssl/cert.pem"
+  ssl_key_file: "/app/ssl/key.pem"
+  max_workers: 4
+  worker_class: "uvicorn.workers.UvicornWorker"
+
+privacy:
+  epsilon_per_query: 0.1
+  delta: 1e-5
+  max_budget_per_user: 10.0
+  noise_multiplier: 1.1
+  mechanism: "gaussian"
+  composition: "rdp"
+  budget_reset_period: 86400  # 24 hours
+  enable_adaptive_privacy: true
+
+routing:
+  strategy: "quantum_optimized"
+  max_concurrent_requests: 50
+  timeout: 30.0
+  enable_load_balancing: true
+  enable_circuit_breaker: true
+  circuit_breaker_threshold: 5
+  circuit_breaker_timeout: 60
+
+security:
+  jwt_secret: null  # Must be set via JWT_SECRET_KEY environment variable
+  token_expiry: 3600
+  enable_mtls: true
+  enable_mfa: true
+  require_mfa_for_admin: true
+  max_failed_attempts: 5
+  lockout_duration: 900
+  password_min_length: 12
+  enable_rate_limiting: true
+  rate_limit_per_minute: 100
+
+performance:
+  enable_caching: true
+  cache_size_mb: 512
+  cache_ttl: 3600
+  enable_connection_pooling: true
+  max_connections: 100
+  connection_timeout: 30
+  enable_compression: true
+  enable_auto_scaling: true
+
+monitoring:
+  enable_performance_monitoring: true
+  enable_audit_logging: true
+  enable_security_monitoring: true
+  log_level: "INFO"
+  log_format: "json"
+  metrics_enabled: true
+  prometheus_port: 9090
+  health_check_interval: 30
+
+compliance:
+  frameworks: ["hipaa", "gdpr", "ccpa"]
+  audit_retention_days: 2555  # 7 years
+  enable_monitoring: true
+  enable_encryption_at_rest: true
+  enable_encryption_in_transit: true
+  enable_field_level_encryption: true
+  data_classification_enabled: true
+  privacy_impact_assessment: true
+
+database:
+  url: null  # Set via DATABASE_URL environment variable
+  pool_size: 10
+  max_overflow: 20
+  pool_timeout: 30
+  enable_ssl: true
+  enable_encryption: true
+
+redis:
+  url: null  # Set via REDIS_URL environment variable
+  max_connections: 50
+  socket_timeout: 30
+  enable_ssl: true
+
+federation:
+  role: "coordinator"
+  model_registry: "/app/models"
+  aggregation_method: "fedavg"
+  min_clients_per_round: 3
+  max_clients_per_round: 10
+  client_timeout: 300
+
+training:
+  base_model: "medllama-7b"
+  rounds: 100
+  clients_per_round: 5
+  local_epochs: 1
+  learning_rate: 0.001
+  enable_differential_privacy: true

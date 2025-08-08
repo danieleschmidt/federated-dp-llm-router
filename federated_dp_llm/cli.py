@@ -7,6 +7,7 @@ privacy budgets, and monitoring.
 
 import asyncio
 import json
+import os
 import sys
 import time
 from typing import Dict, List, Optional, Any
@@ -154,7 +155,7 @@ def create_default_config(env_type: str) -> Dict[str, Any]:
             "timeout": 30.0
         },
         "security": {
-            "jwt_secret": "your-secret-key-here",
+            "jwt_secret": None,  # Must be set via environment variable JWT_SECRET_KEY
             "token_expiry": 3600,
             "enable_mtls": True
         },
@@ -224,7 +225,9 @@ async def start_server(args) -> None:
     
     # Create request handler
     security_config = config.get("security", {})
-    jwt_secret = security_config.get("jwt_secret", "default-secret-key")
+    jwt_secret = security_config.get("jwt_secret") or os.environ.get("JWT_SECRET_KEY")
+    if not jwt_secret:
+        raise ValueError("JWT_SECRET_KEY must be set in config or environment variables")
     request_handler = RequestHandler(router, jwt_secret)
     
     # Start server
