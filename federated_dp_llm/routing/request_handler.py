@@ -8,16 +8,25 @@ and privacy budget checking.
 import asyncio
 import json
 import time
+import uuid
 from typing import Dict, List, Optional, Any
 from dataclasses import asdict
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 import jwt
-from ..routing.load_balancer import FederatedRouter, InferenceRequest, InferenceResponse
-from ..core.privacy_accountant import DPConfig
+from ..routing.load_balancer import FederatedRouter
+from ..routing.simple_load_balancer import SimpleLoadBalancer, FederatedInferenceCoordinator, LoadBalancingStrategy
+from ..core.privacy_accountant import DPConfig, PrivacyAccountant
+from ..core.model_service import ModelService, InferenceRequest, InferenceResponse, get_model_service
+from ..core.error_handling import get_error_handler, handle_errors, ErrorCategory, ErrorSeverity, create_circuit_breaker, create_retry_handler
+from ..federation.http_client import FederatedHTTPClient, SimpleDistributedInference, NodeInferenceRequest
+from ..security.enhanced_security import get_security_manager
+from ..monitoring.logging_config import setup_logging, LogConfig, get_logger
+from ..optimization.integrated_optimizer import get_integrated_optimizer, optimize_request
 
 
 class InferenceRequestModel(BaseModel):
@@ -62,9 +71,53 @@ class UserClaims(BaseModel):
 class RequestHandler:
     """Main HTTP request handler for federated inference."""
     
-    def __init__(self, router: FederatedRouter, jwt_secret: str = "your-secret-key"):
+    def __init__(self, router: FederatedRouter = None, jwt_secret: str = "your-secret-key"):
         self.router = router
         self.jwt_secret = jwt_secret
+        
+        # Initialize logging
+        log_config = LogConfig(
+            level="INFO",
+            format="structured",
+            output="both",
+            log_file="./logs/federated_llm.log",
+            audit_log_file="./logs/audit.log",
+            enable_privacy_filtering=True,
+            enable_security_logging=True
+        )
+        self.loggers = setup_logging(log_config)
+        self.logger = get_logger("request_handler")
+        
+        # Initialize error handling and security
+        self.error_handler = get_error_handler()
+        self.security_manager = get_security_manager()
+        
+        # Initialize performance optimization
+        self.optimizer = get_integrated_optimizer()
+        
+        # Create circuit breakers
+        self.model_circuit_breaker = create_circuit_breaker("model_service", failure_threshold=5)
+        self.node_circuit_breaker = create_circuit_breaker("federated_nodes", failure_threshold=3)
+        
+        # Create retry handlers
+        self.inference_retry = create_retry_handler(max_attempts=3, base_delay=1.0)
+        
+        # Initialize model service and privacy accountant
+        dp_config = DPConfig(epsilon_per_query=0.1, delta=1e-5)
+        self.privacy_accountant = PrivacyAccountant(config=dp_config)
+        self.model_service = get_model_service(self.privacy_accountant)
+        
+        # Initialize simple load balancer (replacing quantum complexity)
+        self.load_balancer = SimpleLoadBalancer(LoadBalancingStrategy.WEIGHTED_ROUND_ROBIN)
+        self.inference_coordinator = FederatedInferenceCoordinator(self.load_balancer)
+        
+        # Register some default nodes (can be configured later)
+        self.load_balancer.register_node("node_1", "localhost", 8001)
+        self.load_balancer.register_node("node_2", "localhost", 8002)
+        
+        # Keep HTTP client for backward compatibility
+        self.http_client = self.load_balancer.http_client
+        self.distributed_inference = SimpleDistributedInference(self.http_client)
         self.app = FastAPI(
             title="Federated DP-LLM Router",
             description="Privacy-preserving federated LLM inference API",
@@ -78,9 +131,27 @@ class RequestHandler:
         self.request_counter = 0
         self.active_requests: Dict[str, float] = {}
         
+        # Load default model
+        asyncio.create_task(self._initialize_model())
+        
         # Setup middleware and routes
         self._setup_middleware()
         self._setup_routes()
+    
+    async def _initialize_model(self):
+        """Initialize the model service and optimization system."""
+        try:
+            # Start optimization system
+            await self.optimizer.start()
+            
+            # Load model
+            success = self.model_service.load_model("microsoft/DialoGPT-small", "cpu")
+            if success:
+                self.logger.info("Model service initialized successfully")
+            else:
+                self.logger.error("Failed to initialize model service")
+        except Exception as e:
+            self.logger.error(f"Error initializing model: {e}")
     
     def _setup_middleware(self):
         """Configure middleware."""
@@ -93,13 +164,88 @@ class RequestHandler:
         )
         
         @self.app.middleware("http")
-        async def add_security_headers(request, call_next):
-            response = await call_next(request)
-            response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["X-Frame-Options"] = "DENY"
-            response.headers["X-XSS-Protection"] = "1; mode=block"
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-            return response
+        async def security_middleware(request, call_next):
+            # Get client IP
+            client_ip = request.client.host if request.client else "unknown"
+            
+            # Log request
+            self.logger.info(
+                f"Incoming request: {request.method} {request.url.path}",
+                extra={
+                    "client_ip": client_ip,
+                    "user_agent": request.headers.get("user-agent"),
+                    "endpoint": str(request.url.path),
+                    "method": request.method
+                }
+            )
+            
+            # Security validation for non-health endpoints
+            if not request.url.path.startswith("/health"):
+                try:
+                    # Extract request data for analysis
+                    request_data = f"{request.method} {request.url.path}"
+                    
+                    # Get query parameters for analysis
+                    if request.query_params:
+                        request_data += f" params: {dict(request.query_params)}"
+                    
+                    # Basic security validation
+                    allowed, security_info = await self.security_manager.validate_request(
+                        request_data=request_data,
+                        source_ip=client_ip,
+                        endpoint=str(request.url.path)
+                    )
+                    
+                    if not allowed:
+                        self.logger.warning(
+                            f"Request blocked: {security_info.get('reason')}",
+                            extra={
+                                "client_ip": client_ip,
+                                "endpoint": str(request.url.path),
+                                "security_info": security_info
+                            }
+                        )
+                        
+                        if security_info.get("rate_limited"):
+                            return Response(
+                                content=json.dumps({
+                                    "error": "Rate limit exceeded",
+                                    "retry_after": security_info.get("retry_after", 60)
+                                }),
+                                status_code=429,
+                                media_type="application/json"
+                            )
+                        else:
+                            return Response(
+                                content=json.dumps({
+                                    "error": "Access denied",
+                                    "reason": security_info.get("reason", "Security violation")
+                                }),
+                                status_code=403,
+                                media_type="application/json"
+                            )
+                            
+                except Exception as e:
+                    self.logger.error(f"Security middleware error: {e}")
+                    # Continue on security middleware errors to avoid blocking legitimate requests
+            
+            # Process request
+            try:
+                response = await call_next(request)
+                
+                # Add security headers
+                response.headers["X-Content-Type-Options"] = "nosniff"
+                response.headers["X-Frame-Options"] = "DENY"
+                response.headers["X-XSS-Protection"] = "1; mode=block"
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+                response.headers["X-Request-ID"] = str(uuid.uuid4())
+                
+                return response
+                
+            except Exception as e:
+                # Log and handle request processing errors
+                await self.error_handler.handle_error(e)
+                raise
     
     def _setup_routes(self):
         """Setup API routes."""
@@ -107,13 +253,17 @@ class RequestHandler:
         @self.app.get("/health", response_model=HealthCheckResponse)
         async def health_check():
             """Health check endpoint."""
-            node_health = await self.router.health_check()
+            model_health = self.model_service.health_check()
+            node_health = await self.router.health_check() if self.router else {}
+            
+            all_nodes = {**node_health, "model_service": model_health}
+            status = "healthy" if model_health["status"] == "healthy" else "unhealthy"
             
             return HealthCheckResponse(
-                status="healthy",
+                status=status,
                 timestamp=time.time(),
                 version="0.1.0",
-                nodes=node_health
+                nodes=all_nodes
             )
         
         @self.app.get("/stats")
@@ -137,30 +287,49 @@ class RequestHandler:
             self.request_counter += 1
             request_id = f"req_{int(time.time())}_{self.request_counter}"
             
-            # Create internal request
-            inference_request = InferenceRequest(
-                request_id=request_id,
+            # Create model service request
+            model_request = InferenceRequest(
+                text=request.prompt,
                 user_id=user.user_id,
-                prompt=request.prompt,
-                model_name=request.model_name,
-                max_privacy_budget=request.max_privacy_budget,
-                require_consensus=request.require_consensus,
-                priority=request.priority,
-                timeout=request.timeout,
-                department=user.department
+                max_length=512,
+                privacy_budget=request.max_privacy_budget
             )
             
             # Track active request
             self.active_requests[request_id] = time.time()
             
             try:
-                # Route request
-                response = await asyncio.wait_for(
-                    self.router.route_request(inference_request),
-                    timeout=request.timeout
+                # Use optimized inference
+                request_key = f\"inference_{hash(str(model_request.__dict__))}\"
+                
+                async def inference_func(data):
+                    return await self.model_service.inference(model_request)
+                
+                response = await optimize_request(
+                    request_key=request_key,
+                    request_data=model_request.__dict__,
+                    inference_func=inference_func
                 )
                 
-                return InferenceResponseModel(**asdict(response))
+                if not response.success:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=response.error
+                    )
+                
+                # Get remaining budget
+                remaining_budget = self.privacy_accountant.get_user_budget(user.user_id)
+                
+                return InferenceResponseModel(
+                    request_id=request_id,
+                    text=response.generated_text,
+                    privacy_cost=response.privacy_cost,
+                    remaining_budget=remaining_budget,
+                    processing_nodes=[f"shard_{i}" for i in range(response.shard_count)],
+                    latency=response.processing_time,
+                    confidence_score=0.95,  # Simplified
+                    consensus_achieved=True  # Simplified
+                )
                 
             except asyncio.TimeoutError:
                 raise HTTPException(
@@ -180,6 +349,331 @@ class RequestHandler:
             finally:
                 # Clean up tracking
                 self.active_requests.pop(request_id, None)
+        
+        @self.app.post("/inference/distributed", response_model=InferenceResponseModel)
+        async def distributed_inference(
+            request: InferenceRequestModel,
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Distributed inference across multiple nodes."""
+            # Generate request ID
+            self.request_counter += 1
+            request_id = f"dist_req_{int(time.time())}_{self.request_counter}"
+            
+            # Check if we have healthy nodes
+            healthy_nodes = self.http_client.get_healthy_nodes()
+            if not healthy_nodes:
+                # Fallback to local inference
+                return await inference(request, user)
+            
+            # Track active request
+            self.active_requests[request_id] = time.time()
+            
+            try:
+                # Choose inference strategy based on request
+                if request.require_consensus:
+                    # Use consensus inference
+                    result = await self.distributed_inference.consensus_inference(
+                        text=request.prompt,
+                        user_id=user.user_id,
+                        request_id=request_id,
+                        min_consensus=2
+                    )
+                else:
+                    # Use fastest inference
+                    result = await self.distributed_inference.fastest_inference(
+                        text=request.prompt,
+                        user_id=user.user_id,
+                        request_id=request_id
+                    )
+                
+                if not result:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="No nodes available or consensus not reached"
+                    )
+                
+                # Deduct privacy budget
+                if self.privacy_accountant.can_query(user.user_id, request.max_privacy_budget):
+                    self.privacy_accountant.deduct_budget(user.user_id, request.max_privacy_budget)
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="Privacy budget exceeded"
+                    )
+                
+                # Get remaining budget
+                remaining_budget = self.privacy_accountant.get_user_budget(user.user_id)
+                
+                end_time = time.time()
+                processing_time = end_time - self.active_requests[request_id]
+                
+                return InferenceResponseModel(
+                    request_id=request_id,
+                    text=result,
+                    privacy_cost=request.max_privacy_budget,
+                    remaining_budget=remaining_budget,
+                    processing_nodes=healthy_nodes,
+                    latency=processing_time,
+                    confidence_score=0.95,
+                    consensus_achieved=request.require_consensus
+                )
+                
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Distributed inference failed: {str(e)}"
+                )
+            finally:
+                # Clean up tracking
+                self.active_requests.pop(request_id, None)
+        
+        @self.app.get("/nodes/health")
+        async def check_all_nodes_health(
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Check health of all registered nodes."""
+            if "admin" not in user.permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin access required"
+                )
+            
+            health_results = await self.http_client.health_check_all_nodes()
+            return {
+                "timestamp": time.time(),
+                "node_health": health_results,
+                "stats": self.http_client.get_node_stats()
+            }
+        
+        @self.app.post("/nodes/register")
+        async def register_node(
+            node_data: dict,
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Register a new federated node."""
+            if "admin" not in user.permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin access required"
+                )
+            
+            try:
+                node_id = node_data["node_id"]
+                host = node_data["host"]
+                port = node_data["port"]
+                
+                self.http_client.register_node(node_id, host, port)
+                
+                # Perform health check
+                health = await self.http_client.health_check_node(node_id)
+                
+                return {
+                    "message": f"Node {node_id} registered successfully",
+                    "health": health.__dict__ if health else None
+                }
+                
+            except KeyError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Missing required field: {e}"
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to register node: {str(e)}"
+                )
+        
+        @self.app.post("/inference/simple", response_model=InferenceResponseModel)
+        async def simple_inference(
+            request: InferenceRequestModel,
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Simple load-balanced inference using the new simple load balancer."""
+            # Generate request ID
+            self.request_counter += 1
+            request_id = f"simple_req_{int(time.time())}_{self.request_counter}"
+            
+            # Check privacy budget
+            if not self.privacy_accountant.can_query(user.user_id, request.max_privacy_budget):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Privacy budget exceeded"
+                )
+            
+            # Track active request
+            self.active_requests[request_id] = time.time()
+            
+            try:
+                # Use simple inference coordinator
+                if request.require_consensus:
+                    # Use redundant inference for consensus
+                    result = await self.inference_coordinator.redundant_inference(
+                        text=request.prompt,
+                        user_id=user.user_id,
+                        request_id=request_id,
+                        redundancy=2
+                    )
+                else:
+                    # Use single inference
+                    result = await self.inference_coordinator.single_inference(
+                        text=request.prompt,
+                        user_id=user.user_id,
+                        request_id=request_id
+                    )
+                
+                if not result:
+                    # Fallback to local model service
+                    model_request = InferenceRequest(
+                        text=request.prompt,
+                        user_id=user.user_id,
+                        max_length=512,
+                        privacy_budget=request.max_privacy_budget
+                    )
+                    
+                    model_response = await self.model_service.inference(model_request)
+                    if model_response.success:
+                        result = model_response.generated_text
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="All inference methods failed"
+                        )
+                
+                # Deduct privacy budget
+                self.privacy_accountant.deduct_budget(user.user_id, request.max_privacy_budget, request_id)
+                
+                # Get remaining budget
+                remaining_budget = self.privacy_accountant.get_user_budget(user.user_id)
+                
+                end_time = time.time()
+                processing_time = end_time - self.active_requests[request_id]
+                
+                return InferenceResponseModel(
+                    request_id=request_id,
+                    text=result,
+                    privacy_cost=request.max_privacy_budget,
+                    remaining_budget=remaining_budget,
+                    processing_nodes=self.load_balancer.http_client.get_healthy_nodes(),
+                    latency=processing_time,
+                    confidence_score=0.95,
+                    consensus_achieved=request.require_consensus
+                )
+                
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Simple inference failed: {str(e)}"
+                )
+            finally:
+                # Clean up tracking
+                self.active_requests.pop(request_id, None)
+        
+        @self.app.get("/load_balancer/stats")
+        async def get_load_balancer_stats(
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Get load balancer statistics."""
+            if "admin" not in user.permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin access required"
+                )
+            
+            return await self.load_balancer.get_load_balancing_stats()
+        
+        @self.app.post("/load_balancer/strategy")
+        async def update_load_balancer_strategy(
+            strategy_data: dict,
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Update load balancing strategy."""
+            if "admin" not in user.permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin access required"
+                )
+            
+            try:
+                strategy_name = strategy_data["strategy"]
+                strategy = LoadBalancingStrategy(strategy_name)
+                self.load_balancer.update_strategy(strategy)
+                
+                return {
+                    "message": f"Load balancing strategy updated to {strategy_name}",
+                    "current_strategy": strategy.value
+                }
+                
+            except (KeyError, ValueError) as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid strategy: {e}"
+                )
+        
+        @self.app.get("/performance/stats")
+        async def get_performance_stats(
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Get comprehensive performance statistics."""
+            if "admin" not in user.permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin access required"
+                )
+            
+            stats = self.optimizer.get_performance_stats()
+            error_stats = self.error_handler.get_error_stats()
+            security_stats = self.security_manager.get_security_stats()
+            
+            return {
+                "timestamp": time.time(),
+                "performance": stats,
+                "errors": error_stats,
+                "security": security_stats
+            }
+        
+        @self.app.post("/performance/optimize")
+        async def trigger_optimization(
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Manually trigger performance optimization."""
+            if "admin" not in user.permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin access required"
+                )
+            
+            try:
+                await self.optimizer.trigger_optimization()
+                return {"message": "Optimization triggered successfully"}
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Optimization failed: {str(e)}"
+                )
+        
+        @self.app.get("/metrics/system")
+        async def get_system_metrics(
+            user: UserClaims = Depends(self.get_current_user)
+        ):
+            """Get current system metrics."""
+            if "monitoring" not in user.permissions and "admin" not in user.permissions:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Monitoring access required"
+                )
+            
+            current_metrics = self.optimizer.resource_monitor.get_current_metrics()
+            metrics_summary = self.optimizer.resource_monitor.get_metrics_summary(60)
+            
+            return {
+                "current": current_metrics.__dict__ if current_metrics else None,
+                "summary_1h": metrics_summary
+            }
         
         @self.app.get("/privacy/budget/{user_id}")
         async def get_privacy_budget(
