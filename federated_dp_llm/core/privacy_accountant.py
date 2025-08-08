@@ -7,6 +7,7 @@ composition mechanisms including RDP (Rényi Differential Privacy).
 
 import math
 import time
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Optional, List, Tuple
@@ -117,7 +118,7 @@ class RDPAccountant:
         for order in self.orders:
             if order == 1.0:
                 continue
-            rdp_order = steps / (2 * sigma**2 * (order - 1))
+            rdp_order = steps * order / (2 * sigma**2)
             self.rdp_eps[order] += rdp_order
     
     def get_privacy_spent(self, delta: float) -> Tuple[float, float]:
@@ -140,6 +141,7 @@ class PrivacyAccountant:
         self.config = config
         self.user_budgets: Dict[str, float] = {}
         self.privacy_history: List[PrivacySpend] = []
+        self._lock = threading.RLock()
         
         # Initialize mechanism
         if config.mechanism == DPMechanism.GAUSSIAN:
@@ -160,28 +162,29 @@ class PrivacyAccountant:
     
     def spend_budget(self, user_id: str, epsilon: float, query_type: str = "inference") -> bool:
         """Spend privacy budget and record the transaction."""
-        if not self.check_budget(user_id, epsilon):
-            return False
-        
-        # Record spend
-        self.user_budgets[user_id] = self.user_budgets.get(user_id, 0.0) + epsilon
-        
-        spend_record = PrivacySpend(
-            user_id=user_id,
-            epsilon=epsilon,
-            delta=self.config.delta,
-            timestamp=time.time(),
-            query_type=query_type,
-            mechanism=self.config.mechanism
-        )
-        self.privacy_history.append(spend_record)
-        
-        # Update composition tracking
-        if self.config.composition == CompositionMethod.RDP:
-            sigma = self.config.noise_multiplier
-            self.rdp_accountant.compose(sigma, steps=1)
-        
-        return True
+        with self._lock:
+            if not self.check_budget(user_id, epsilon):
+                return False
+            
+            # Record spend atomically
+            self.user_budgets[user_id] = self.user_budgets.get(user_id, 0.0) + epsilon
+            
+            spend_record = PrivacySpend(
+                user_id=user_id,
+                epsilon=epsilon,
+                delta=self.config.delta,
+                timestamp=time.time(),
+                query_type=query_type,
+                mechanism=self.config.mechanism
+            )
+            self.privacy_history.append(spend_record)
+            
+            # Update composition tracking
+            if self.config.composition == CompositionMethod.RDP:
+                sigma = self.config.noise_multiplier
+                self.rdp_accountant.compose(sigma, steps=1)
+            
+            return True
     
     def get_remaining_budget(self, user_id: str) -> float:
         """Get remaining privacy budget for user."""
@@ -204,12 +207,13 @@ class PrivacyAccountant:
     
     def reset_user_budget(self, user_id: str):
         """Reset privacy budget for a user (e.g., daily reset)."""
-        self.user_budgets[user_id] = 0.0
-        # Remove user's history for the reset period
-        self.privacy_history = [
-            spend for spend in self.privacy_history 
-            if spend.user_id != user_id
-        ]
+        with self._lock:
+            self.user_budgets[user_id] = 0.0
+            # Remove user's history for the reset period
+            self.privacy_history = [
+                spend for spend in self.privacy_history 
+                if spend.user_id != user_id
+            ]
     
     def get_user_history(self, user_id: str) -> List[PrivacySpend]:
         """Get privacy spending history for a user."""

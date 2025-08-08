@@ -11,9 +11,36 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 import numpy as np
-import torch
-import torch.nn as nn
 from pathlib import Path
+
+# Conditional torch imports
+try:
+    import torch
+    import torch.nn as nn
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    nn = None
+    TORCH_AVAILABLE = False
+    
+    # Create dummy classes when torch is not available
+    class _DummyTensor:
+        def __init__(self, *args, **kwargs):
+            pass
+        
+        def __getattr__(self, name):
+            raise RuntimeError("Torch not available. Install torch to use model sharding functionality.")
+    
+    class _DummyModule:
+        def __init__(self, *args, **kwargs):
+            pass
+        
+        def __getattr__(self, name):
+            raise RuntimeError("Torch not available. Install torch to use model sharding functionality.")
+    
+    # Set dummy types for type hints
+    torch = type('torch', (), {'Tensor': _DummyTensor})()
+    nn = type('nn', (), {'Module': _DummyModule})()
 
 
 class ShardingStrategy(Enum):
@@ -55,13 +82,16 @@ class ModelMetadata:
 class ModelShard:
     """Represents a single shard of a distributed model."""
     
-    def __init__(self, metadata: ShardMetadata, weights: Optional[Dict[str, torch.Tensor]] = None):
+    def __init__(self, metadata: ShardMetadata, weights: Optional[Dict[str, 'torch.Tensor']] = None):
         self.metadata = metadata
         self.weights = weights or {}
         self.is_loaded = weights is not None
     
     def load_weights(self, weights_path: Path):
         """Load weights from disk."""
+        if not TORCH_AVAILABLE and weights_path.suffix == '.pt':
+            raise RuntimeError("Torch not available. Cannot load .pt files without torch installed.")
+        
         if weights_path.suffix == '.pt':
             self.weights = torch.load(weights_path, map_location='cpu')
         elif weights_path.suffix == '.pkl':
@@ -77,6 +107,8 @@ class ModelShard:
         weights_path.parent.mkdir(parents=True, exist_ok=True)
         
         if weights_path.suffix == '.pt':
+            if not TORCH_AVAILABLE:
+                raise RuntimeError("Torch not available. Cannot save .pt files without torch installed.")
             torch.save(self.weights, weights_path)
         elif weights_path.suffix == '.pkl':
             with open(weights_path, 'wb') as f:
@@ -91,13 +123,18 @@ class ModelShard:
         
         total_bytes = 0
         for tensor in self.weights.values():
-            if isinstance(tensor, torch.Tensor):
+            if TORCH_AVAILABLE and isinstance(tensor, torch.Tensor):
                 total_bytes += tensor.numel() * tensor.element_size()
+            elif hasattr(tensor, 'nbytes'):  # numpy array
+                total_bytes += tensor.nbytes
         
         return total_bytes
     
-    def forward_pass(self, input_tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+    def forward_pass(self, input_tensor: 'torch.Tensor', **kwargs) -> 'torch.Tensor':
         """Execute forward pass for this shard."""
+        if not TORCH_AVAILABLE:
+            raise RuntimeError("Torch not available. Install torch to use forward pass functionality.")
+        
         if not self.is_loaded:
             raise RuntimeError("Shard weights not loaded")
         
@@ -109,7 +146,7 @@ class ModelShard:
         else:
             raise NotImplementedError(f"Forward pass not implemented for {self.metadata.shard_type}")
     
-    def _layer_wise_forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _layer_wise_forward(self, x: 'torch.Tensor', **kwargs) -> 'torch.Tensor':
         """Forward pass for layer-wise sharding."""
         # Simplified transformer layer implementation
         for layer_name, layer_weights in self.weights.items():
@@ -119,7 +156,7 @@ class ModelShard:
                 x = self._feed_forward(x, layer_weights)
         return x
     
-    def _attention_split_forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+    def _attention_split_forward(self, x: 'torch.Tensor', **kwargs) -> 'torch.Tensor':
         """Forward pass for attention head splitting."""
         # Simplified multi-head attention with split heads
         if 'attention_weights' in self.weights:
@@ -127,11 +164,11 @@ class ModelShard:
             return attention_output
         return x
     
-    def _attention_forward(self, x: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    def _attention_forward(self, x: 'torch.Tensor', weights: 'torch.Tensor') -> 'torch.Tensor':
         """Simplified attention computation."""
         return torch.matmul(x, weights)
     
-    def _feed_forward(self, x: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    def _feed_forward(self, x: 'torch.Tensor', weights: 'torch.Tensor') -> 'torch.Tensor':
         """Simplified feed-forward computation."""
         return torch.relu(torch.matmul(x, weights))
 
@@ -144,8 +181,11 @@ class ModelSharder:
         self.shards: Dict[str, ModelShard] = {}
         self.metadata: Optional[ModelMetadata] = None
     
-    def shard_model_layer_wise(self, model: nn.Module, num_shards: int, node_ids: List[str]) -> ModelMetadata:
+    def shard_model_layer_wise(self, model: 'nn.Module', num_shards: int, node_ids: List[str]) -> ModelMetadata:
         """Shard model by distributing layers across nodes."""
+        if not TORCH_AVAILABLE:
+            raise RuntimeError("Torch not available. Install torch to use model sharding functionality.")
+        
         if len(node_ids) != num_shards:
             raise ValueError("Number of node IDs must match number of shards")
         
@@ -211,8 +251,11 @@ class ModelSharder:
         
         return self.metadata
     
-    def shard_model_attention_split(self, model: nn.Module, num_shards: int, node_ids: List[str]) -> ModelMetadata:
+    def shard_model_attention_split(self, model: 'nn.Module', num_shards: int, node_ids: List[str]) -> ModelMetadata:
         """Shard model by splitting attention heads across nodes."""
+        if not TORCH_AVAILABLE:
+            raise RuntimeError("Torch not available. Install torch to use model sharding functionality.")
+        
         if len(node_ids) != num_shards:
             raise ValueError("Number of node IDs must match number of shards")
         

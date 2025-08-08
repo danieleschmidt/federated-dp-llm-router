@@ -7,10 +7,16 @@ and resource optimization for federated node communications.
 
 import asyncio
 import time
-from typing import Dict, List, Optional, Any, Callable, Set
+from typing import Dict, List, Optional, Any, Callable, Set, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-import httpx
+# Conditional import for HTTP client
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    httpx = None
+    HTTPX_AVAILABLE = False
 import logging
 from collections import defaultdict, deque
 import weakref

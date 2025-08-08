@@ -2,6 +2,10 @@
 
 from .privacy_accountant import PrivacyAccountant, DPConfig
 from .secure_aggregation import SecureAggregator
-from .model_sharding import ModelSharder
 
-__all__ = ["PrivacyAccountant", "DPConfig", "SecureAggregator", "ModelSharder"]
+# Conditional import for model sharding (requires torch)
+try:
+    from .model_sharding import ModelSharder, ShardingStrategy
+    __all__ = ["PrivacyAccountant", "DPConfig", "SecureAggregator", "ModelSharder", "ShardingStrategy"]
+except ImportError:
+    __all__ = ["PrivacyAccountant", "DPConfig", "SecureAggregator"]
