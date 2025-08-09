@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Dict, Optional, List, Tuple
 import numpy as np
 from abc import ABC, abstractmethod
+from .storage import get_budget_storage, SimpleBudgetStorage
 
 
 class DPMechanism(Enum):
@@ -137,8 +138,9 @@ class RDPAccountant:
 class PrivacyAccountant:
     """Main privacy accountant for tracking differential privacy budgets."""
     
-    def __init__(self, config: DPConfig):
+    def __init__(self, config: DPConfig, storage: Optional[SimpleBudgetStorage] = None):
         self.config = config
+        self.storage = storage or get_budget_storage()
         self.user_budgets: Dict[str, float] = {}
         self.privacy_history: List[PrivacySpend] = []
         self._lock = threading.RLock()
@@ -154,6 +156,9 @@ class PrivacyAccountant:
         # Initialize composition tracking
         if config.composition == CompositionMethod.RDP:
             self.rdp_accountant = RDPAccountant()
+        
+        # Load existing budgets from storage
+        self._load_budgets_from_storage()
     
     def check_budget(self, user_id: str, requested_epsilon: float) -> bool:
         """Check if user has sufficient privacy budget."""
@@ -218,3 +223,69 @@ class PrivacyAccountant:
     def get_user_history(self, user_id: str) -> List[PrivacySpend]:
         """Get privacy spending history for a user."""
         return [spend for spend in self.privacy_history if spend.user_id == user_id]
+    
+    def _load_budgets_from_storage(self):
+        """Load existing budget records from persistent storage."""
+        try:
+            all_budgets = self.storage.get_all_budgets()
+            for user_id, budget_record in all_budgets.items():
+                self.user_budgets[user_id] = budget_record.spent_budget
+        except Exception as e:
+            print(f"Warning: Could not load budgets from storage: {e}")
+    
+    def can_query(self, user_id: str, epsilon: float) -> bool:
+        """Check if user can make a query with given epsilon."""
+        # Get budget from storage
+        budget_record = self.storage.get_user_budget(user_id)
+        if not budget_record:
+            # Create new user with default budget
+            self.storage.create_user_budget(user_id, "unknown", self.config.max_budget_per_user)
+            return epsilon <= self.config.max_budget_per_user
+        
+        return budget_record.remaining_budget >= epsilon
+    
+    def deduct_budget(self, user_id: str, epsilon: float, request_id: Optional[str] = None) -> bool:
+        """Deduct privacy budget from user account."""
+        # Update storage
+        success = self.storage.update_user_budget(user_id, epsilon, request_id)
+        
+        if success:
+            # Update in-memory cache
+            self.user_budgets[user_id] = self.user_budgets.get(user_id, 0.0) + epsilon
+            
+            # Add to history
+            self.privacy_history.append(PrivacySpend(
+                user_id=user_id,
+                epsilon=epsilon,
+                delta=self.config.delta,
+                timestamp=time.time(),
+                query_type="inference"
+            ))
+        
+        return success
+    
+    def get_user_budget(self, user_id: str) -> float:
+        """Get remaining privacy budget for user from storage."""
+        budget_record = self.storage.get_user_budget(user_id)
+        if not budget_record:
+            # Create new user
+            self.storage.create_user_budget(user_id, "unknown", self.config.max_budget_per_user)
+            return self.config.max_budget_per_user
+        
+        return budget_record.remaining_budget
+    
+    def reset_user_budget_persistent(self, user_id: str) -> bool:
+        """Reset user budget in persistent storage."""
+        success = self.storage.reset_user_budget(user_id)
+        
+        if success:
+            # Update in-memory cache
+            self.user_budgets[user_id] = 0.0
+            
+            # Remove from history
+            self.privacy_history = [
+                spend for spend in self.privacy_history 
+                if spend.user_id != user_id
+            ]
+        
+        return success
