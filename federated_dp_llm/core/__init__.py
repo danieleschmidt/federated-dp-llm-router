@@ -1,4 +1,3 @@
-```python
 """Core privacy and differential privacy components."""
 
 from .privacy_accountant import PrivacyAccountant, DPConfig
@@ -20,4 +19,3 @@ try:
     __all__.extend(["ModelService", "InferenceRequest", "InferenceResponse", "get_model_service"])
 except ImportError:
     pass
-```
