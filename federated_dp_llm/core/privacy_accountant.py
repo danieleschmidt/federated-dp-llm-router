@@ -14,6 +14,7 @@ from typing import Dict, Optional, List, Tuple
 import numpy as np
 from abc import ABC, abstractmethod
 from .storage import get_budget_storage, SimpleBudgetStorage
+from ..security.enhanced_privacy_validator import get_privacy_validator, ValidationResult
 
 
 class DPMechanism(Enum):
@@ -160,16 +161,37 @@ class PrivacyAccountant:
         # Load existing budgets from storage
         self._load_budgets_from_storage()
     
-    def check_budget(self, user_id: str, requested_epsilon: float) -> bool:
-        """Check if user has sufficient privacy budget."""
+    def check_budget(self, user_id: str, requested_epsilon: float, 
+                    department: str = "general", data_sensitivity: str = "medium",
+                    user_role: str = "doctor", query_type: str = "inference") -> Tuple[bool, Optional[ValidationResult]]:
+        """Check if user has sufficient privacy budget with enhanced validation."""
+        # Enhanced privacy parameter validation
+        validator = get_privacy_validator()
+        validation_result = validator.validate_privacy_parameters(
+            requested_epsilon, self.config.delta, self.config.noise_multiplier,
+            department, data_sensitivity, user_role, query_type
+        )
+        
+        if not validation_result.valid:
+            return False, validation_result
+            
+        # Check budget limits
         current_budget = self.user_budgets.get(user_id, 0.0)
-        return current_budget + requested_epsilon <= self.config.max_budget_per_user
+        budget_available = current_budget + requested_epsilon <= self.config.max_budget_per_user
+        
+        return budget_available, validation_result
     
-    def spend_budget(self, user_id: str, epsilon: float, query_type: str = "inference") -> bool:
-        """Spend privacy budget and record the transaction."""
+    def spend_budget(self, user_id: str, epsilon: float, query_type: str = "inference",
+                    department: str = "general", data_sensitivity: str = "medium",
+                    user_role: str = "doctor") -> Tuple[bool, Optional[ValidationResult]]:
+        """Spend privacy budget and record the transaction with enhanced validation."""
         with self._lock:
-            if not self.check_budget(user_id, epsilon):
-                return False
+            budget_ok, validation_result = self.check_budget(
+                user_id, epsilon, department, data_sensitivity, user_role, query_type
+            )
+            
+            if not budget_ok:
+                return False, validation_result
             
             # Record spend atomically
             self.user_budgets[user_id] = self.user_budgets.get(user_id, 0.0) + epsilon
@@ -189,7 +211,7 @@ class PrivacyAccountant:
                 sigma = self.config.noise_multiplier
                 self.rdp_accountant.compose(sigma, steps=1)
             
-            return True
+            return True, validation_result
     
     def get_remaining_budget(self, user_id: str) -> float:
         """Get remaining privacy budget for user."""
