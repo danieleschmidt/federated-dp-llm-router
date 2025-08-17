@@ -15,7 +15,15 @@ from enum import Enum
 import logging
 import json
 from collections import defaultdict, deque
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    # Mock numpy for testing environments
+    class MockNP:
+        @staticmethod
+        def tanh(x):
+            return 2 / (1 + (2.718 ** (-2 * x))) - 1
+    np = MockNP()
 
 logger = logging.getLogger(__name__)
 
@@ -654,10 +662,80 @@ class AdvancedPerformanceOptimizer:
         }
 
 
-# Global optimizer instance
-global_optimizer = AdvancedPerformanceOptimizer()
+class GlobalOptimizationManager:
+    """Global optimization manager with production-grade features."""
+    
+    def __init__(self):
+        self.optimizer = None
+        self.monitoring_enabled = True
+        self.alert_thresholds = {
+            'high_latency': 1000,  # ms
+            'high_cpu': 80,        # %
+            'high_memory': 85,     # %
+            'low_cache_hit': 0.5   # 50%
+        }
+    
+    def get_optimizer(self, strategy: OptimizationStrategy = OptimizationStrategy.ADAPTIVE) -> AdvancedPerformanceOptimizer:
+        """Get or create global optimizer instance."""
+        if self.optimizer is None:
+            self.optimizer = AdvancedPerformanceOptimizer(strategy)
+            logger.info(f"Initialized global performance optimizer with {strategy.value} strategy")
+        return self.optimizer
+    
+    async def start_continuous_optimization(self):
+        """Start continuous background optimization."""
+        if self.optimizer:
+            while self.monitoring_enabled:
+                try:
+                    results = await self.optimizer.run_optimization_cycle()
+                    await self._check_alerts(results)
+                    await asyncio.sleep(60)  # Run every minute
+                except Exception as e:
+                    logger.error(f"Optimization cycle failed: {e}")
+                    await asyncio.sleep(60)
+    
+    async def _check_alerts(self, optimization_results: Dict[str, Any]):
+        """Check for alert conditions in optimization results."""
+        current_perf = optimization_results.get('current_performance', {})
+        
+        alerts = []
+        
+        if current_perf.get('request_latency', 0) > self.alert_thresholds['high_latency']:
+            alerts.append(f"High latency: {current_perf['request_latency']:.1f}ms")
+        
+        if current_perf.get('cpu_usage', 0) > self.alert_thresholds['high_cpu']:
+            alerts.append(f"High CPU: {current_perf['cpu_usage']:.1f}%")
+        
+        if current_perf.get('memory_usage', 0) > self.alert_thresholds['high_memory']:
+            alerts.append(f"High memory: {current_perf['memory_usage']:.1f}%")
+        
+        cache_stats = optimization_results.get('caching', {})
+        if cache_stats.get('hit_rate', 1.0) < self.alert_thresholds['low_cache_hit']:
+            alerts.append(f"Low cache hit rate: {cache_stats['hit_rate']:.1%}")
+        
+        if alerts:
+            logger.warning(f"Performance alerts: {'; '.join(alerts)}")
+    
+    def stop_monitoring(self):
+        """Stop continuous monitoring."""
+        self.monitoring_enabled = False
+        logger.info("Stopped performance monitoring")
 
 
-def get_performance_optimizer() -> AdvancedPerformanceOptimizer:
+# Global optimization manager
+global_optimization_manager = GlobalOptimizationManager()
+
+
+def get_performance_optimizer(strategy: OptimizationStrategy = OptimizationStrategy.ADAPTIVE) -> AdvancedPerformanceOptimizer:
     """Get the global performance optimizer instance."""
-    return global_optimizer
+    return global_optimization_manager.get_optimizer(strategy)
+
+
+def start_performance_monitoring():
+    """Start global performance monitoring."""
+    return global_optimization_manager.start_continuous_optimization()
+
+
+def stop_performance_monitoring():
+    """Stop global performance monitoring."""
+    global_optimization_manager.stop_monitoring()
