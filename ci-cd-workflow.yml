@@ -1,0 +1,139 @@
+# GitHub Actions CI/CD Pipeline for Federated DP-LLM Router
+# 
+# MANUAL SETUP REQUIRED:
+# 1. Create .github/workflows/ directory in your repository
+# 2. Copy this file to .github/workflows/ci-cd.yml
+# 3. Commit and push the workflow file manually
+#
+# This avoids GitHub App workflow permissions issues
+
+name: Federated DP-LLM CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3.12-venv python3-pip
+          
+      - name: Create virtual environment and install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install -e .
+          pip install pytest pytest-asyncio pytest-cov psutil
+          
+      - name: Run quality gates
+        run: |
+          source venv/bin/activate
+          python autonomous_quality_gates.py
+          
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: quality-gate-results
+          path: "*.log"
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: quality-gates
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run security scan with bandit
+        run: |
+          pip install bandit safety
+          bandit -r federated_dp_llm/ -f json -o bandit-report.json || true
+          safety check --json --output safety-report.json || true
+          
+      - name: Upload security results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-scan-results
+          path: "*-report.json"
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: [quality-gates, security-scan]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.prod
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VERSION=${{ github.ref_name }}
+            VCS_REF=${{ github.sha }}
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    steps:
+      - name: Deploy to staging
+        run: |
+          echo "🚀 Deploying to staging environment..."
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main"
+          # Add your staging deployment commands here
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'release'
+    environment: production
+    steps:
+      - name: Deploy to production
+        run: |
+          echo "🚀 Deploying to production environment..."
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          # Add your production deployment commands here
