@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: federated-dp-llm-api
+    version: v1.0.0
+  name: federated-dp-llm-api
+  namespace: federated-dp-llm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: federated-dp-llm-api
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: federated-dp-llm-api
+        version: v1.0.0
+    spec:
+      containers:
+      - env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: postgres-password
+              name: federated-dp-llm-secrets
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: redis-password
+              name: federated-dp-llm-secrets
+        envFrom:
+        - configMapRef:
+            name: federated-dp-llm-config
+        image: federated-dp-llm:production-v1.0.0
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        name: federated-dp-llm-api
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+          requests:
+            cpu: 500m
+            memory: 2Gi
+        volumeMounts:
+        - mountPath: /app/config
+          name: config-volume
+        - mountPath: /app/models
+          name: model-cache
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      volumes:
+      - configMap:
+          name: federated-dp-llm-config
+        name: config-volume
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: model-cache-pvc

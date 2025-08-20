@@ -28,6 +28,69 @@ except ImportError:
 class CacheLevel(Enum):
     """Cache levels in multi-tier architecture."""
     L1_MEMORY = "l1_memory"  # In-process memory cache
+    
+class CacheTier(Enum):
+    """Cache tier enumeration."""
+    L1_MEMORY = "l1_memory"
+    L2_REDIS = "l2_redis" 
+    L3_DISTRIBUTED = "l3_distributed"
+
+class CacheStrategy(Enum):
+    """Caching strategies."""
+    LRU = "lru"
+    TTL_BASED = "ttl_based"
+    CONSISTENT_HASH = "consistent_hash"
+
+@dataclass
+class CacheMetrics:
+    """Cache performance metrics."""
+    hit_ratio: float = 0.0
+    miss_count: int = 0
+    hit_count: int = 0
+
+class AdvancedCacheManager:
+    """Advanced multi-tier cache management."""
+    
+    def __init__(self, strategies=None, max_memory_size=512, 
+                 enable_compression=True, enable_encryption=True):
+        self.strategies = strategies or {}
+        self.max_memory_size = max_memory_size
+        self.enable_compression = enable_compression
+        self.enable_encryption = enable_encryption
+        self.cache = {}
+        self.hit_count = 0
+        self.miss_count = 0
+        
+    def set(self, key: str, value: Any, ttl: int = 300):
+        """Store value in cache."""
+        self.cache[key] = {"value": value, "expires": time.time() + ttl}
+        
+    def get(self, key: str) -> Optional[Any]:
+        """Retrieve value from cache."""
+        if key in self.cache:
+            entry = self.cache[key]
+            if time.time() < entry["expires"]:
+                self.hit_count += 1
+                return entry["value"]
+            else:
+                del self.cache[key]
+        self.miss_count += 1
+        return None
+        
+    def warm_cache(self, items: List[Tuple[str, Any]]):
+        """Pre-load cache with common items."""
+        for key, value in items:
+            self.set(key, value)
+            
+    def get_metrics(self) -> CacheMetrics:
+        """Get cache performance metrics."""
+        total = self.hit_count + self.miss_count
+        hit_ratio = self.hit_count / max(total, 1)
+        return CacheMetrics(
+            hit_ratio=hit_ratio,
+            hit_count=self.hit_count,
+            miss_count=self.miss_count
+        )
     L2_REDIS = "l2_redis"    # Redis cache
     L3_DISK = "l3_disk"      # Disk-based cache
 

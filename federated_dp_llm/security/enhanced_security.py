@@ -622,3 +622,101 @@ def get_security_manager() -> SecurityManager:
     if _security_manager is None:
         _security_manager = SecurityManager()
     return _security_manager
+
+
+class SecurityLevel(Enum):
+    """Security level configurations."""
+    BASIC = "basic"
+    HEALTHCARE_HIPAA = "healthcare_hipaa"
+    GOVERNMENT = "government"
+    MILITARY = "military"
+
+
+@dataclass 
+class ValidationResult:
+    """Result of security validation."""
+    is_valid: bool
+    issues: List[str] = field(default_factory=list)
+    risk_score: float = 0.0
+
+
+class SecurityValidator:
+    """Security validation for requests."""
+    
+    def __init__(self, security_level: SecurityLevel = SecurityLevel.BASIC,
+                 enable_threat_detection: bool = True,
+                 enable_access_logging: bool = True):
+        self.security_level = security_level
+        self.enable_threat_detection = enable_threat_detection
+        self.enable_access_logging = enable_access_logging
+        
+    def validate_inference_request(self, inputs: Dict[str, Any]) -> ValidationResult:
+        """Validate inference request inputs."""
+        issues = []
+        risk_score = 0.0
+        
+        # Basic validation
+        if not inputs.get('user_id'):
+            issues.append("Missing user_id")
+            risk_score += 0.3
+            
+        if not inputs.get('user_prompt'):
+            issues.append("Missing user_prompt")
+            risk_score += 0.2
+            
+        # Privacy budget validation
+        privacy_budget = inputs.get('privacy_budget', 0)
+        if privacy_budget <= 0 or privacy_budget > 10:
+            issues.append(f"Invalid privacy budget: {privacy_budget}")
+            risk_score += 0.4
+            
+        return ValidationResult(
+            is_valid=len(issues) == 0,
+            issues=issues,
+            risk_score=risk_score
+        )
+
+
+class ThreatDetector:
+    """Threat detection system."""
+    
+    def __init__(self):
+        self.patterns = []
+        
+    def analyze_request_pattern(self, user_id: str, request_frequency: int,
+                               unusual_access_patterns: bool) -> Optional[str]:
+        """Analyze request patterns for threats."""
+        if request_frequency > 100:  # More than 100 requests per minute
+            return f"High request frequency detected for user {user_id}"
+            
+        if unusual_access_patterns:
+            return f"Unusual access patterns detected for user {user_id}"
+            
+        return None
+
+
+class AccessController:
+    """Access control system."""
+    
+    def __init__(self):
+        self.role_permissions = {
+            "physician": ["inference_request", "patient_query", "diagnostic_assistance"],
+            "nurse": ["basic_query", "patient_lookup"],
+            "researcher": ["anonymized_query", "statistical_analysis"],
+            "admin": ["system_management", "user_administration"]
+        }
+        
+    def check_role_permissions(self, user_id: str, role: str, 
+                              requested_operation: str, 
+                              resource_sensitivity: str) -> bool:
+        """Check if user role has permission for operation."""
+        allowed_operations = self.role_permissions.get(role, [])
+        
+        if requested_operation not in allowed_operations:
+            return False
+            
+        # Additional sensitivity checks
+        if resource_sensitivity == "high" and role not in ["physician", "admin"]:
+            return False
+            
+        return True

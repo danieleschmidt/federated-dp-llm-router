@@ -455,3 +455,83 @@ class LoggingContextManager:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         logging.setLogRecordFactory(self.old_factory)
+
+
+def setup_healthcare_logging(log_level: str = "INFO", 
+                           enable_audit_trail: bool = True,
+                           enable_privacy_logging: bool = True,
+                           compliance_mode: str = "HIPAA"):
+    """Setup healthcare-compliant logging."""
+    config = LogConfig(
+        level=log_level,
+        enable_audit_logging=enable_audit_trail,
+        enable_privacy_filtering=enable_privacy_logging
+    )
+    
+    logger = logging.getLogger('healthcare_compliant')
+    logger.setLevel(getattr(logging, log_level.upper()))
+    
+    # Create formatter for structured logging
+    formatter = StructuredFormatter()
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+
+class AuditLogger:
+    """Audit logging for compliance."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger('audit')
+        
+    def log_privacy_access(self, user_id: str, patient_id: str, 
+                          operation: str, privacy_budget_spent: float):
+        """Log privacy-related access."""
+        self.logger.info("AUDIT_PRIVACY_ACCESS", extra={
+            "user_id": user_id,
+            "patient_id": patient_id,
+            "operation": operation,
+            "privacy_budget_spent": privacy_budget_spent,
+            "timestamp": time.time()
+        })
+
+
+class PrivacyLogger:
+    """Privacy-specific logging."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger('privacy')
+        
+    def log_differential_privacy_application(self, mechanism: str, 
+                                            epsilon: float, delta: float,
+                                            query_type: str):
+        """Log DP mechanism application."""
+        self.logger.info("DP_APPLICATION", extra={
+            "mechanism": mechanism,
+            "epsilon": epsilon,
+            "delta": delta,
+            "query_type": query_type,
+            "timestamp": time.time()
+        })
+
+
+class SecurityLogger:
+    """Security event logging."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger('security')
+        
+    def log_authentication_event(self, user_id: str, event_type: str,
+                                client_ip: str, user_agent: str):
+        """Log authentication events."""
+        self.logger.info("AUTH_EVENT", extra={
+            "user_id": user_id,
+            "event_type": event_type,
+            "client_ip": client_ip,
+            "user_agent": user_agent,
+            "timestamp": time.time()
+        })

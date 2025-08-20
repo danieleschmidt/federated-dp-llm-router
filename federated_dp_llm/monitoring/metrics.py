@@ -562,3 +562,26 @@ class PrivacyDashboard:
             return True
         
         return False
+    
+    def record_privacy_spend(self, user_id: str, epsilon_spent: float, remaining_budget: float):
+        """Record privacy budget spending metrics."""
+        try:
+            self.privacy_budget_spent.labels(user_id=user_id).inc(epsilon_spent)
+            self.privacy_budget_remaining.labels(user_id=user_id).set(remaining_budget)
+        except AttributeError:
+            # Create metrics if they don't exist
+            self.privacy_budget_spent = Counter('privacy_budget_spent_total', 'Total privacy budget spent', ['user_id'])
+            self.privacy_budget_remaining = Gauge('privacy_budget_remaining', 'Remaining privacy budget', ['user_id'])
+            self.privacy_budget_spent.labels(user_id=user_id).inc(epsilon_spent)
+            self.privacy_budget_remaining.labels(user_id=user_id).set(remaining_budget)
+    
+    def trigger_privacy_alert(self, user_id: str, current_budget: float, alert_type: str):
+        """Trigger privacy-related alert."""
+        alert_id = f"privacy_{user_id}_{int(time.time())}"
+        self.trigger_alert(
+            alert_id=alert_id,
+            severity="warning",
+            component="privacy_accountant",
+            message=f"Privacy budget low for user {user_id}: {current_budget:.3f}",
+            details={"user_id": user_id, "current_budget": current_budget, "alert_type": alert_type}
+        )

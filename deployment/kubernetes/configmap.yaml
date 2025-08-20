@@ -1,0 +1,12 @@
+apiVersion: v1
+data:
+  ENABLE_AUDIT_LOGGING: 'true'
+  ENABLE_PRIVACY_MONITORING: 'true'
+  ENVIRONMENT: production
+  HIPAA_COMPLIANCE_MODE: 'true'
+  LOG_LEVEL: INFO
+  QUANTUM_OPTIMIZATION: 'true'
+kind: ConfigMap
+metadata:
+  name: federated-dp-llm-config
+  namespace: federated-dp-llm
