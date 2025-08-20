@@ -31,6 +31,15 @@ class ErrorType(Enum):
     INTERNAL_ERROR = "internal_error"
 
 
+class ErrorRecoveryStrategy(Enum):
+    """Recovery strategies for different error types."""
+    RETRY_WITH_BACKOFF = "retry_with_backoff"
+    FALLBACK_TO_LOCAL = "fallback_to_local"
+    CIRCUIT_BREAKER = "circuit_breaker"
+    GRACEFUL_DEGRADATION = "graceful_degradation"
+    EMERGENCY_BYPASS = "emergency_bypass"
+
+
 class ErrorSeverity(Enum):
     """Error severity levels for response prioritization."""
     CRITICAL = "critical"      # System-wide impact
@@ -488,3 +497,40 @@ global_error_handler = EnhancedErrorHandler()
 def get_error_handler() -> EnhancedErrorHandler:
     """Get the global error handler instance."""
     return global_error_handler
+
+
+# Alias for compatibility
+FederatedErrorHandler = EnhancedErrorHandler
+
+
+class AsyncErrorHandler:
+    """Async-specific error handling patterns."""
+    
+    def __init__(self, max_concurrent_retries: int = 3, 
+                 timeout_seconds: int = 30, 
+                 exponential_backoff: bool = True):
+        self.max_concurrent_retries = max_concurrent_retries
+        self.timeout_seconds = timeout_seconds
+        self.exponential_backoff = exponential_backoff
+    
+    async def execute_with_retry(self, coro, max_attempts: int = 3):
+        """Execute coroutine with retry logic."""
+        for attempt in range(max_attempts):
+            try:
+                return await coro
+            except Exception as e:
+                if attempt == max_attempts - 1:
+                    raise
+                await asyncio.sleep(2 ** attempt if self.exponential_backoff else 1)
+        
+    def handle_with_recovery(self, func, context: ErrorContext):
+        """Handle errors with recovery strategies."""
+        try:
+            return func()
+        except Exception as e:
+            logger.error(f"Operation failed: {e}")
+            # Implement basic recovery
+            if context.retry_count < 3:
+                context.retry_count += 1
+                return self.handle_with_recovery(func, context)
+            raise

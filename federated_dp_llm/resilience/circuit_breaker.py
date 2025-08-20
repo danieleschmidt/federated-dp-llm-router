@@ -345,3 +345,7 @@ class HealthcareCircuitBreakerManager:
             }
         
         return system_health
+
+
+# Alias for compatibility
+CircuitState = CircuitBreakerState

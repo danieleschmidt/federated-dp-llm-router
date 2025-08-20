@@ -487,3 +487,97 @@ class AdvancedHealthChecker:
         """Count security events in last hour."""
         # Would check actual security logs
         return 0
+
+
+@dataclass
+class SystemComponent:
+    """System component configuration for health monitoring."""
+    name: str
+    type: str = "service"
+    endpoint: Optional[str] = None
+    critical: bool = False
+    timeout: float = 10.0
+
+
+class HealthStatus(Enum):
+    """Health status levels."""
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class HealthAlert:
+    """Health alert configuration."""
+    component: str
+    status: HealthStatus
+    message: str
+    timestamp: float
+    severity: str = "warning"
+
+
+class AdvancedHealthMonitor:
+    """Advanced health monitoring system."""
+    
+    def __init__(self, check_interval: int = 30, critical_threshold: float = 0.95,
+                 warning_threshold: float = 0.80, enable_alerting: bool = True):
+        self.check_interval = check_interval
+        self.critical_threshold = critical_threshold
+        self.warning_threshold = warning_threshold
+        self.enable_alerting = enable_alerting
+        self.components: Dict[str, SystemComponent] = {}
+        
+    def register_component(self, component: SystemComponent):
+        """Register a component for monitoring."""
+        self.components[component.name] = component
+        
+    def check_component_health(self, component_name: str) -> HealthStatus:
+        """Check health of a specific component."""
+        if component_name not in self.components:
+            return HealthStatus.UNKNOWN
+            
+        component = self.components[component_name]
+        
+        # Simulate health check (in real implementation, this would make HTTP requests, etc.)
+        try:
+            # Basic health check logic
+            import random
+            health_score = random.uniform(0.7, 1.0)
+            
+            if health_score >= self.critical_threshold:
+                return HealthStatus.HEALTHY
+            elif health_score >= self.warning_threshold:
+                return HealthStatus.DEGRADED
+            else:
+                return HealthStatus.UNHEALTHY
+                
+        except Exception:
+            return HealthStatus.UNKNOWN
+            
+    def get_system_health(self) -> Dict[str, Any]:
+        """Get overall system health status."""
+        component_statuses = {}
+        healthy_count = 0
+        total_count = len(self.components)
+        
+        for name, component in self.components.items():
+            status = self.check_component_health(name)
+            component_statuses[name] = {
+                "status": status.value,
+                "critical": component.critical,
+                "type": component.type
+            }
+            
+            if status == HealthStatus.HEALTHY:
+                healthy_count += 1
+                
+        overall_health = healthy_count / max(total_count, 1)
+        
+        return {
+            "overall_health": overall_health,
+            "components": component_statuses,
+            "healthy_components": healthy_count,
+            "total_components": total_count,
+            "timestamp": time.time()
+        }

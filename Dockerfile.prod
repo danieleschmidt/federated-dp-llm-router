@@ -1,54 +1,104 @@
-# Production Dockerfile for Federated DP-LLM Router
-FROM python:3.11-slim
+# Multi-stage production Dockerfile for Federated DP-LLM Router
+# Optimized for healthcare environments with security and performance
 
-# Set security and performance environment variables
+FROM python:3.11-slim as builder
+
+# Set build arguments
+ARG PYTHON_VERSION=3.11
+ARG BUILD_DATE
+ARG VERSION=1.0.0
+ARG VCS_REF
+
+# Add metadata
+LABEL maintainer="Daniel Schmidt <daniel@terragonlabs.com>" \
+      org.label-schema.build-date=$BUILD_DATE \
+      org.label-schema.version=$VERSION \
+      org.label-schema.vcs-ref=$VCS_REF \
+      org.label-schema.schema-version="1.0" \
+      org.label-schema.description="Privacy-Preserving Federated LLM Router for Healthcare"
+
+# Install system dependencies for building
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy requirements first (for better caching)
+COPY requirements.txt requirements-prod.txt ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r requirements-prod.txt
+
+# Production stage
+FROM python:3.11-slim as production
+
+# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    NODE_ENV=production
+    PATH="/opt/venv/bin:$PATH" \
+    ENVIRONMENT=production
 
-# Create non-root user for security
-RUN groupadd -r feduser && useradd -r -g feduser feduser
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
+# Install runtime system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r federated --gid=1000 \
+    && useradd -r -g federated --uid=1000 --home-dir=/app --shell=/bin/bash federated
 
-# Create application directory
-WORKDIR /app
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
 
-# Copy requirements first for better layer caching
-COPY requirements.txt .
-COPY requirements-prod.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -r requirements-prod.txt
-
-# Copy application code
-COPY . .
-
-# Create necessary directories
-RUN mkdir -p /app/logs /app/ssl /app/config && \
-    chown -R feduser:feduser /app
-
-# Remove development files and test data
-RUN rm -rf tests/ test_* validate_* simple_validation.py quality_gates.py
+# Create app directory and set ownership
+RUN mkdir -p /app/config /app/models /app/logs \
+    && chown -R federated:federated /app
 
 # Switch to non-root user
-USER feduser
+USER federated
+WORKDIR /app
 
-# Expose ports
-EXPOSE 8080 8443
+# Copy application code
+COPY --chown=federated:federated . .
+
+# Install the package
+RUN pip install --no-deps -e .
+
+# Create startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "Starting Federated DP-LLM Router..."\n\
+echo "Environment: $ENVIRONMENT"\n\
+echo "Python version: $(python --version)"\n\
+echo "Package version: $(python -c \"from federated_dp_llm import __version__; print(__version__)\")"\n\
+\n\
+# Health check\n\
+echo "Performing health check..."\n\
+python -c "import federated_dp_llm; print(\"Import successful\")"\n\
+\n\
+# Start the application\n\
+exec python -m uvicorn federated_dp_llm.api:app \\\n\
+    --host 0.0.0.0 \\\n\
+    --port 8080 \\\n\
+    --workers 4 \\\n\
+    --worker-class uvicorn.workers.UvicornWorker \\\n\
+    --access-log \\\n\
+    --log-level info\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+# Expose port
+EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f https://localhost:8443/health || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Set entrypoint
-ENTRYPOINT ["python", "-m", "federated_dp_llm.cli", "server", "start"]
-CMD ["--config", "/app/config/production.yaml", "--port", "8080"]
+ENTRYPOINT ["/app/start.sh"]

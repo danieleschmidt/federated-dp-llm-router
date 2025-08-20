@@ -158,7 +158,18 @@ class FederatedRouter:
         
         # Initialize components
         self.nodes: Dict[str, NodeCapability] = {}
-        self.model_sharder = ModelSharder(model_name) if MODEL_SHARDING_AVAILABLE else None
+        if MODEL_SHARDING_AVAILABLE:
+            from ..core.model_sharding import ShardingConfig, ShardingStrategy
+            shard_config = ShardingConfig(
+                strategy=ShardingStrategy.LAYER_WISE,
+                num_shards=num_shards,
+                overlap_layers=0,
+                load_balancing=True,
+                privacy_constraints=True
+            )
+            self.model_sharder = ModelSharder(shard_config)
+        else:
+            self.model_sharder = None
         self.load_tracker = NodeLoadTracker()
         self.privacy_accountant = PrivacyAccountant(DPConfig())
         
