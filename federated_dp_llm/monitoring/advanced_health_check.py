@@ -1,19 +1,38 @@
 """
-Advanced Health Check System
+Advanced Health Check System with Predictive Monitoring for Generation 2 Robustness
 
-Comprehensive health monitoring for federated LLM router with quantum-enhanced
-diagnostics, privacy budget monitoring, and security event detection.
+Implements sophisticated health monitoring with predictive failure detection,
+auto-remediation, comprehensive system observability, and self-healing capabilities
+for production-ready federated healthcare LLM infrastructure.
 """
 
 import asyncio
 import time
-import psutil
 import json
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, asdict
+import logging
+import threading
+import statistics
+import numpy as np
+from typing import Dict, List, Optional, Tuple, Any, Callable, Union
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
-import logging
+from collections import deque, defaultdict
+
+# Optional dependencies with fallbacks
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
+
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    httpx = None
+    HTTPX_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
