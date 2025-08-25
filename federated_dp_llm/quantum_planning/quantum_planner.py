@@ -7,12 +7,15 @@ federated nodes while maintaining privacy constraints and maximizing efficiency.
 
 import asyncio
 import time
-import numpy as np
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
 from collections import defaultdict, deque
+
+from .numpy_fallback import get_numpy_backend, quantum_wavefunction, quantum_probability, quantum_interference, quantum_coherence
+
+HAS_NUMPY, np = get_numpy_backend()
 
 logger = logging.getLogger(__name__)
 

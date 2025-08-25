@@ -16,14 +16,12 @@ import logging
 import json
 from collections import defaultdict, deque
 try:
-    import numpy as np
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 except ImportError:
-    # Mock numpy for testing environments
-    class MockNP:
-        @staticmethod
-        def tanh(x):
-            return 2 / (1 + (2.718 ** (-2 * x))) - 1
-    np = MockNP()
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 
 logger = logging.getLogger(__name__)
 

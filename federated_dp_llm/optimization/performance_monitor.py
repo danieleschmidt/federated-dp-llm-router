@@ -23,7 +23,13 @@ import threading
 import statistics
 import logging
 from concurrent.futures import ThreadPoolExecutor
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 
 logger = logging.getLogger(__name__)
 

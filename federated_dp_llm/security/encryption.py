@@ -6,7 +6,13 @@ data in federated learning scenarios.
 """
 
 import secrets
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass
 from cryptography.hazmat.primitives import hashes, serialization
@@ -47,11 +53,11 @@ class HomomorphicScheme:
         """Generate a new key pair."""
         raise NotImplementedError
     
-    def encrypt(self, plaintext: Union[int, float, np.ndarray]) -> EncryptedValue:
+    def encrypt(self, plaintext: Union[int, float, List]) -> EncryptedValue:
         """Encrypt plaintext value."""
         raise NotImplementedError
     
-    def decrypt(self, ciphertext: EncryptedValue) -> Union[int, float, np.ndarray]:
+    def decrypt(self, ciphertext: EncryptedValue) -> Union[int, float, List]:
         """Decrypt ciphertext value."""
         raise NotImplementedError
     
@@ -300,13 +306,17 @@ class HomomorphicEncryption:
             self.scheme.mu = private_data[1]
             self.scheme.key_id = key_pair.key_id
     
-    def encrypt_array(self, array: np.ndarray) -> List[EncryptedValue]:
+    def encrypt_array(self, array: List) -> List[EncryptedValue]:
         """Encrypt a numpy array element-wise."""
         if self.keys is None:
             raise ValueError("No keys loaded")
         
         encrypted_values = []
-        flat_array = array.flatten()
+        # Handle both flat lists and nested lists (flatten if needed)
+        if isinstance(array[0], list):
+            flat_array = [val for row in array for val in row]
+        else:
+            flat_array = array
         
         for value in flat_array:
             encrypted_value = self.scheme.encrypt(float(value))
@@ -314,7 +324,7 @@ class HomomorphicEncryption:
         
         return encrypted_values
     
-    def decrypt_array(self, encrypted_values: List[EncryptedValue], shape: Tuple[int, ...]) -> np.ndarray:
+    def decrypt_array(self, encrypted_values: List[EncryptedValue], shape: Tuple[int, ...]) -> List:
         """Decrypt a list of encrypted values back to numpy array."""
         if self.keys is None:
             raise ValueError("No keys loaded")
@@ -324,7 +334,15 @@ class HomomorphicEncryption:
             decrypted_value = self.scheme.decrypt(encrypted_value)
             decrypted_values.append(decrypted_value)
         
-        return np.array(decrypted_values).reshape(shape)
+        # Reshape the decrypted values according to the shape
+        if len(shape) == 1:
+            return decrypted_values
+        elif len(shape) == 2:
+            rows, cols = shape
+            return [[decrypted_values[i * cols + j] for j in range(cols)] for i in range(rows)]
+        else:
+            # For higher dimensions, just return flat list
+            return decrypted_values
     
     def add_encrypted_arrays(self, a: List[EncryptedValue], b: List[EncryptedValue]) -> List[EncryptedValue]:
         """Add two encrypted arrays element-wise."""

@@ -227,10 +227,23 @@ class ComprehensiveQualityGates:
                 passed_tests += 1
                 
                 # Test privacy mechanisms
-                import numpy as np
+                try:
+                    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+                    HAS_NUMPY, np = get_numpy_backend()
+                except ImportError:
+                    # Fallback for testing
+                    class TestNP:
+                        @staticmethod
+                        def array(data): return data
+                    np = TestNP()
+                    HAS_NUMPY = False
+                
                 test_data = np.array([1.0, 2.0, 3.0])
                 noisy_data = accountant.add_noise_to_query(test_data, sensitivity=1.0, epsilon=0.1)
-                assert noisy_data.shape == test_data.shape
+                if HAS_NUMPY:
+                    assert noisy_data.shape == test_data.shape
+                else:
+                    assert len(noisy_data) == len(test_data)
                 passed_tests += 1
                 
             except Exception as e:

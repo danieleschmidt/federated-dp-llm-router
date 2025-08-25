@@ -16,7 +16,13 @@ import traceback
 import functools
 import threading
 from collections import defaultdict, deque
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 
 
 class ErrorSeverity(Enum):
@@ -373,7 +379,11 @@ class AdaptiveRetryHandler:
             delay = base
         
         # Add jitter to prevent thundering herd
-        jitter = np.random.uniform(0.8, 1.2)
+        if HAS_NUMPY:
+            jitter = np.random.uniform(0.8, 1.2)
+        else:
+            import random
+            jitter = random.uniform(0.8, 1.2)
         return min(delay * jitter, max_delay)
     
     def _get_fibonacci(self, n: int) -> int:

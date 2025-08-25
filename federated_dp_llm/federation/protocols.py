@@ -12,7 +12,13 @@ from typing import Dict, List, Optional, Any, Protocol, TypeVar, Generic
 from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 
 
 class CommunicationPattern(Enum):
@@ -55,7 +61,7 @@ class FederatedProtocol(Protocol, Generic[T]):
 class FedAvgUpdate:
     """FedAvg algorithm update structure."""
     participant_id: str
-    model_weights: Dict[str, np.ndarray]
+    model_weights: Dict[str, List]
     num_samples: int
     training_loss: float
     privacy_cost: float
@@ -66,8 +72,8 @@ class FedAvgUpdate:
 class FedProxUpdate:
     """FedProx algorithm update structure."""
     participant_id: str
-    model_weights: Dict[str, np.ndarray]
-    proximal_term: Dict[str, np.ndarray]
+    model_weights: Dict[str, List]
+    proximal_term: Dict[str, List]
     num_samples: int
     mu: float  # Proximal regularization parameter
     training_loss: float
@@ -81,7 +87,7 @@ class FederatedAveragingProtocol:
     def __init__(self, min_participants: int = 3):
         self.min_participants = min_participants
         self.active_rounds: Dict[str, Dict[str, Any]] = {}
-        self.global_model: Optional[Dict[str, np.ndarray]] = None
+        self.global_model: Optional[Dict[str, List]] = None
         self.round_counter = 0
     
     def initialize_round(self, participants: List[str]) -> str:
@@ -127,7 +133,7 @@ class FederatedAveragingProtocol:
         
         return True
     
-    def aggregate_updates(self, round_id: str) -> Optional[Dict[str, np.ndarray]]:
+    def aggregate_updates(self, round_id: str) -> Optional[Dict[str, List]]:
         """Aggregate updates using FedAvg algorithm."""
         if round_id not in self.active_rounds:
             return None
@@ -185,7 +191,7 @@ class FederatedAveragingProtocol:
         
         # Check for reasonable parameter values
         for param_name, param_value in update.model_weights.items():
-            if not isinstance(param_value, np.ndarray):
+            if not isinstance(param_value, List):
                 return False
             
             if np.any(np.isnan(param_value)) or np.any(np.isinf(param_value)):
@@ -205,7 +211,7 @@ class FederatedProximalProtocol:
         self.mu = mu  # Proximal regularization parameter
         self.min_participants = min_participants
         self.active_rounds: Dict[str, Dict[str, Any]] = {}
-        self.global_model: Optional[Dict[str, np.ndarray]] = None
+        self.global_model: Optional[Dict[str, List]] = None
         self.round_counter = 0
     
     def initialize_round(self, participants: List[str]) -> str:
@@ -250,7 +256,7 @@ class FederatedProximalProtocol:
         
         return True
     
-    def aggregate_updates(self, round_id: str) -> Optional[Dict[str, np.ndarray]]:
+    def aggregate_updates(self, round_id: str) -> Optional[Dict[str, List]]:
         """Aggregate updates using FedProx algorithm."""
         if round_id not in self.active_rounds:
             return None
@@ -320,7 +326,7 @@ class FederatedProximalProtocol:
             model_param = update.model_weights[param_name]
             proximal_param = update.proximal_term[param_name]
             
-            if not isinstance(model_param, np.ndarray) or not isinstance(proximal_param, np.ndarray):
+            if not isinstance(model_param, List) or not isinstance(proximal_param, List):
                 return False
             
             if model_param.shape != proximal_param.shape:
@@ -339,7 +345,7 @@ class DecentralizedProtocol:
     def __init__(self, gossip_probability: float = 0.5):
         self.gossip_probability = gossip_probability
         self.peer_connections: Dict[str, List[str]] = {}
-        self.node_models: Dict[str, Dict[str, np.ndarray]] = {}
+        self.node_models: Dict[str, Dict[str, List]] = {}
         self.communication_rounds: int = 0
     
     def register_node(self, node_id: str, neighbors: List[str]):

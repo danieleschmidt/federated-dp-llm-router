@@ -8,7 +8,37 @@ and performance requirements.
 import pytest
 import asyncio
 import time
-import numpy as np
+try:
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    class TestNP:
+        @staticmethod
+        def array(data): return list(data) if not isinstance(data, list) else data
+        @staticmethod
+        def mean(arr): return sum(arr) / len(arr)
+        @staticmethod
+        def random_normal(mean=0, std=1, size=None):
+            import random
+            if size is None: return random.gauss(mean, std)
+            return [random.gauss(mean, std) for _ in range(size)]
+        @staticmethod
+        def exp(x):
+            import math
+            if isinstance(x, (int, float)): return math.exp(x)
+            return [math.exp(val) for val in x]
+        @staticmethod
+        def cos(x):
+            import math
+            if isinstance(x, (int, float)): return math.cos(x)
+            return [math.cos(val) for val in x]
+        @staticmethod
+        def sin(x):
+            import math
+            if isinstance(x, (int, float)): return math.sin(x)
+            return [math.sin(val) for val in x]
+    np = TestNP()
+    HAS_NUMPY = False
 from unittest.mock import Mock, AsyncMock, patch
 from typing import Dict, List, Any
 

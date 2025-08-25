@@ -6,7 +6,22 @@ import pytest
 import asyncio
 import time
 from unittest.mock import AsyncMock, patch, MagicMock
-import numpy as np
+try:
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    class TestNP:
+        @staticmethod
+        def array(data): return list(data) if not isinstance(data, list) else data
+        @staticmethod
+        def mean(arr): return sum(arr) / len(arr)
+        @staticmethod
+        def random_normal(mean=0, std=1, size=None):
+            import random
+            if size is None: return random.gauss(mean, std)
+            return [random.gauss(mean, std) for _ in range(size)]
+    np = TestNP()
+    HAS_NUMPY = False
 
 from federated_dp_llm.optimization.performance_optimizer import (
     PerformanceOptimizer, LoadPredictor, ResourceOptimizer, AdaptiveScaler,

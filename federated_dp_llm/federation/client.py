@@ -11,7 +11,13 @@ import time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 import httpx
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 from ..core.privacy_accountant import PrivacyAccountant, DPConfig
 from ..routing.load_balancer import InferenceRequest, InferenceResponse
 
@@ -41,7 +47,7 @@ class ModelUpdate:
     """Represents a model update for federated learning."""
     node_id: str
     model_name: str
-    parameters: Dict[str, np.ndarray]
+    parameters: Dict[str, List]
     metadata: Dict[str, Any]
     privacy_spent: float
     training_samples: int
@@ -204,7 +210,7 @@ class FederatedLearningClient:
         self.coordinator_endpoint = coordinator_endpoint.rstrip('/')
         
         # Local model state
-        self.local_model_parameters: Dict[str, np.ndarray] = {}
+        self.local_model_parameters: Dict[str, List] = {}
         self.training_history: List[Dict[str, Any]] = []
         
         # HTTP client for coordinator communication
@@ -237,7 +243,7 @@ class FederatedLearningClient:
             print(f"Registration failed: {str(e)}")
             return False
     
-    async def participate_in_round(self, round_id: str, global_model: Dict[str, np.ndarray]) -> ModelUpdate:
+    async def participate_in_round(self, round_id: str, global_model: Dict[str, List]) -> ModelUpdate:
         """Participate in a federated learning round."""
         start_time = time.time()
         
@@ -274,7 +280,7 @@ class FederatedLearningClient:
         
         return model_update
     
-    async def _simulate_local_training(self, global_model: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    async def _simulate_local_training(self, global_model: Dict[str, List]) -> Dict[str, List]:
         """Simulate local model training with differential privacy."""
         # Simulate training delay
         training_time = np.random.uniform(1.0, 5.0)  # 1-5 seconds
@@ -303,7 +309,7 @@ class FederatedLearningClient:
         """Submit model update to coordinator."""
         # Serialize numpy arrays to lists for JSON
         serialized_parameters = {
-            name: param.tolist() if isinstance(param, np.ndarray) else param
+            name: param.tolist() if isinstance(param, List) else param
             for name, param in model_update.parameters.items()
         }
         
@@ -330,7 +336,7 @@ class FederatedLearningClient:
             print(f"Failed to submit model update: {str(e)}")
             return False
     
-    async def get_aggregated_model(self, round_id: str) -> Optional[Dict[str, np.ndarray]]:
+    async def get_aggregated_model(self, round_id: str) -> Optional[Dict[str, List]]:
         """Get aggregated model after federated learning round."""
         try:
             response = await self.client.get(

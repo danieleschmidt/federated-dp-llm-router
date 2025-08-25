@@ -10,7 +10,9 @@ import time
 import hashlib
 import hmac
 import secrets
-import numpy as np
+from .numpy_fallback import get_numpy_backend
+
+HAS_NUMPY, np = get_numpy_backend()
 from typing import Dict, List, Optional, Tuple, Any, Set, Callable
 from dataclasses import dataclass, field
 from enum import Enum

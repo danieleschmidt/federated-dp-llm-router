@@ -24,7 +24,28 @@ from dataclasses import dataclass, asdict
 from collections import deque, defaultdict
 import uuid
 import hashlib
-import numpy as np
+try:
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # Fallback if the module structure is different
+    import math
+    class NumpyFallback:
+        @staticmethod
+        def array(data): return list(data) if not isinstance(data, list) else data
+        @staticmethod 
+        def mean(arr): return sum(arr) / len(arr)
+        @staticmethod
+        def std(arr): 
+            mean_val = sum(arr) / len(arr)
+            return math.sqrt(sum((x - mean_val) ** 2 for x in arr) / len(arr))
+        @staticmethod
+        def random_uniform(low=0, high=1, size=None):
+            import random
+            if size is None: return random.uniform(low, high)
+            return [random.uniform(low, high) for _ in range(size)]
+    HAS_NUMPY = False
+    np = NumpyFallback()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
