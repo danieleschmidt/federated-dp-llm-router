@@ -11,7 +11,13 @@ import time
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from collections import defaultdict
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 from ..core.privacy_accountant import PrivacyAccountant, DPConfig
 from ..core.secure_aggregation import SecureAggregator
 from ..federation.client import HospitalNode, ModelUpdate
@@ -22,9 +28,9 @@ class TrainingRound:
     """Represents a federated learning training round."""
     round_id: str
     participants: List[str]
-    global_model: Dict[str, np.ndarray]
+    global_model: Dict[str, List]
     submitted_updates: Dict[str, ModelUpdate]
-    aggregated_model: Optional[Dict[str, np.ndarray]]
+    aggregated_model: Optional[Dict[str, List]]
     status: str = "active"  # active, aggregating, completed, failed
     start_time: float = time.time()
     deadline: float = time.time() + 300  # 5 minutes default
@@ -37,7 +43,7 @@ class FederatedModel:
     """Represents the global federated model."""
     model_name: str
     version: int
-    parameters: Dict[str, np.ndarray]
+    parameters: Dict[str, List]
     training_rounds: int
     total_participants: int
     last_updated: float
@@ -55,7 +61,7 @@ class FederatedAggregator:
         self,
         updates: List[ModelUpdate],
         weights: Optional[List[float]] = None
-    ) -> Dict[str, np.ndarray]:
+    ) -> Dict[str, List]:
         """Aggregate model updates using specified method."""
         
         if not updates:
@@ -74,7 +80,7 @@ class FederatedAggregator:
         self,
         updates: List[ModelUpdate],
         weights: Optional[List[float]] = None
-    ) -> Dict[str, np.ndarray]:
+    ) -> Dict[str, List]:
         """FedAvg algorithm - weighted average by number of samples."""
         
         if weights is None:
@@ -107,7 +113,7 @@ class FederatedAggregator:
         self,
         updates: List[ModelUpdate],
         weights: Optional[List[float]] = None
-    ) -> Dict[str, np.ndarray]:
+    ) -> Dict[str, List]:
         """Weighted averaging with custom weights."""
         
         if weights is None:
@@ -134,7 +140,7 @@ class FederatedAggregator:
         
         return aggregated_params
     
-    def _secure_aggregation(self, updates: List[ModelUpdate]) -> Dict[str, np.ndarray]:
+    def _secure_aggregation(self, updates: List[ModelUpdate]) -> Dict[str, List]:
         """Secure aggregation using cryptographic protocols."""
         
         # Start secure aggregation round
@@ -171,9 +177,9 @@ class FederatedAggregator:
     
     def _reconstruct_parameters(
         self,
-        flat_array: np.ndarray,
-        template_params: Dict[str, np.ndarray]
-    ) -> Dict[str, np.ndarray]:
+        flat_array: List,
+        template_params: Dict[str, List]
+    ) -> Dict[str, List]:
         """Reconstruct parameter dictionary from flattened array."""
         
         reconstructed = {}
@@ -462,7 +468,7 @@ class FederatedTrainer:
     async def _simulate_node_training(
         self,
         node: HospitalNode,
-        global_model: Dict[str, np.ndarray]
+        global_model: Dict[str, List]
     ) -> ModelUpdate:
         """Simulate local training on a node."""
         
@@ -513,8 +519,8 @@ class FederatedTrainer:
     def _calculate_round_metrics(
         self,
         model_updates: List[ModelUpdate],
-        global_model: Dict[str, np.ndarray],
-        aggregated_model: Dict[str, np.ndarray]
+        global_model: Dict[str, List],
+        aggregated_model: Dict[str, List]
     ) -> Dict[str, float]:
         """Calculate performance metrics for the training round."""
         

@@ -3,7 +3,20 @@ Tests for privacy accountant and differential privacy mechanisms.
 """
 
 import pytest
-import numpy as np
+try:
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    class TestNP:
+        @staticmethod
+        def array(data): return list(data) if not isinstance(data, list) else data
+        @staticmethod
+        def random_normal(mean=0, std=1, size=None):
+            import random
+            if size is None: return random.gauss(mean, std)
+            return [random.gauss(mean, std) for _ in range(size)]
+    np = TestNP()
+    HAS_NUMPY = False
 import time
 from unittest.mock import Mock, patch
 
@@ -83,7 +96,7 @@ class TestGaussianMechanism:
                     epsilon
                 )
                 
-                assert isinstance(noisy_value, np.ndarray)
+                assert isinstance(noisy_value, List)
                 assert noisy_value.shape == (1,)
                 # Value should be different (with high probability)
                 assert noisy_value[0] != value or epsilon > 10  # High epsilon = low noise
@@ -96,7 +109,7 @@ class TestGaussianMechanism:
         noisy_data = mechanism.add_noise(data, sensitivity=1.0, epsilon=1.0)
         
         assert noisy_data.shape == data.shape
-        assert isinstance(noisy_data, np.ndarray)
+        assert isinstance(noisy_data, List)
 
 
 class TestLaplaceMechanism:
@@ -131,7 +144,7 @@ class TestLaplaceMechanism:
                     epsilon
                 )
                 
-                assert isinstance(noisy_value, np.ndarray)
+                assert isinstance(noisy_value, List)
                 assert noisy_value.shape == (1,)
 
 
@@ -274,7 +287,7 @@ class TestPrivacyAccountant:
             query_result, sensitivity, epsilon
         )
         
-        assert isinstance(noisy_result, np.ndarray)
+        assert isinstance(noisy_result, List)
         assert noisy_result.shape == query_result.shape
         # Results should be different (with high probability)
         assert not np.array_equal(noisy_result, query_result) or epsilon > 10

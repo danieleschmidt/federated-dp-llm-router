@@ -7,7 +7,9 @@ task planning components with healthcare-grade reliability.
 
 import asyncio
 import time
-import numpy as np
+from .numpy_fallback import get_numpy_backend
+
+HAS_NUMPY, np = get_numpy_backend()
 from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass
 from enum import Enum

@@ -8,7 +8,9 @@ patterns to optimize resource distribution and minimize conflicts.
 
 import asyncio
 import time
-import numpy as np
+from .numpy_fallback import get_numpy_backend
+
+HAS_NUMPY, np = get_numpy_backend()
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -121,9 +123,9 @@ class InterferenceBalancer:
         self.global_wave_function: complex = complex(1.0, 0.0)
         
         # Interference pattern tracking
-        self.interference_patterns: Dict[str, np.ndarray] = {}
+        self.interference_patterns: Dict[str, List] = {}
         self.standing_wave_nodes: Dict[str, List[float]] = {}
-        self.phase_synchronization_matrix: np.ndarray = np.array([])
+        self.phase_synchronization_matrix: List = np.array([])
         
         # Load balancing state
         self.optimal_phase_configurations: Dict[str, float] = {}

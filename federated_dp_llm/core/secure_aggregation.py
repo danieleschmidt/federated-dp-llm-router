@@ -13,7 +13,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 
 
 @dataclass
@@ -167,13 +173,18 @@ class SecureAggregator:
         self.active_rounds[round_id] = round_obj
         return round_obj
     
-    def create_commitment(self, data: np.ndarray, nonce: bytes = None) -> str:
+    def create_commitment(self, data: List, nonce: bytes = None) -> str:
         """Create cryptographic commitment to data."""
         if nonce is None:
             nonce = secrets.token_bytes(32)
         
         # Serialize data
-        data_bytes = data.tobytes()
+        if hasattr(data, 'tobytes'):
+            data_bytes = data.tobytes()
+        else:
+            # Handle List fallback
+            import json
+            data_bytes = json.dumps(data).encode('utf-8')
         
         # Create commitment hash
         hasher = hashlib.sha256()
@@ -182,10 +193,15 @@ class SecureAggregator:
         
         return hasher.hexdigest()
     
-    def encrypt_share(self, data: np.ndarray, node_id: str) -> bytes:
+    def encrypt_share(self, data: List, node_id: str) -> bytes:
         """Encrypt data share for secure transmission."""
-        # Convert numpy array to bytes
-        data_bytes = data.tobytes()
+        # Convert data to bytes
+        if hasattr(data, 'tobytes'):
+            data_bytes = data.tobytes()
+        else:
+            # Handle List fallback
+            import json
+            data_bytes = json.dumps(data).encode('utf-8')
         
         # Generate symmetric key
         key = secrets.token_bytes(32)
@@ -199,7 +215,7 @@ class SecureAggregator:
         # Combine IV and ciphertext
         return iv + ciphertext
     
-    def submit_share(self, round_id: str, node_id: str, data: np.ndarray) -> bool:
+    def submit_share(self, round_id: str, node_id: str, data: List) -> bool:
         """Submit encrypted share to aggregation round."""
         if round_id not in self.active_rounds:
             raise ValueError(f"Round {round_id} not found")
@@ -232,7 +248,7 @@ class SecureAggregator:
         
         return True
     
-    def aggregate_shares(self, round_id: str) -> Optional[np.ndarray]:
+    def aggregate_shares(self, round_id: str) -> Optional[List]:
         """Perform secure aggregation of submitted shares."""
         if round_id not in self.active_rounds:
             raise ValueError(f"Round {round_id} not found")
@@ -276,7 +292,7 @@ class SecureAggregator:
         expected_signature = self._sign_data(share.encrypted_data, share.node_id)
         return secrets.compare_digest(expected_signature, share.signature)
     
-    def _decrypt_share(self, encrypted_data: bytes) -> np.ndarray:
+    def _decrypt_share(self, encrypted_data: bytes) -> List:
         """Decrypt share data (simplified - needs proper key management)."""
         # Extract IV and ciphertext
         iv = encrypted_data[:16]

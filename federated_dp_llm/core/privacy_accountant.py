@@ -11,7 +11,13 @@ import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Optional, List, Tuple
-import numpy as np
+try:
+    from ..quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # For files outside quantum_planning module
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
 from abc import ABC, abstractmethod
 from .storage import get_budget_storage, SimpleBudgetStorage
 from ..security.enhanced_privacy_validator import get_privacy_validator, ValidationResult
@@ -58,7 +64,7 @@ class PrivacyMechanism(ABC):
     """Abstract base class for privacy mechanisms."""
     
     @abstractmethod
-    def add_noise(self, value: np.ndarray, sensitivity: float, epsilon: float) -> np.ndarray:
+    def add_noise(self, value: List, sensitivity: float, epsilon: float) -> List:
         """Add calibrated noise to maintain differential privacy."""
         pass
     
@@ -74,7 +80,7 @@ class GaussianMechanism(PrivacyMechanism):
     def __init__(self, delta: float = 1e-5):
         self.delta = delta
     
-    def add_noise(self, value: np.ndarray, sensitivity: float, epsilon: float) -> np.ndarray:
+    def add_noise(self, value: List, sensitivity: float, epsilon: float) -> List:
         """Add Gaussian noise calibrated for (ε, δ)-DP."""
         sigma = self.get_noise_scale(sensitivity, epsilon)
         noise = np.random.normal(0, sigma, value.shape)
@@ -93,7 +99,7 @@ class GaussianMechanism(PrivacyMechanism):
 class LaplaceMechanism(PrivacyMechanism):
     """Laplace noise mechanism for pure differential privacy."""
     
-    def add_noise(self, value: np.ndarray, sensitivity: float, epsilon: float) -> np.ndarray:
+    def add_noise(self, value: List, sensitivity: float, epsilon: float) -> List:
         """Add Laplace noise calibrated for ε-DP."""
         scale = self.get_noise_scale(sensitivity, epsilon)
         noise = np.random.laplace(0, scale, value.shape)
@@ -218,7 +224,7 @@ class PrivacyAccountant:
         spent = self.user_budgets.get(user_id, 0.0)
         return max(0.0, self.config.max_budget_per_user - spent)
     
-    def add_noise_to_query(self, query_result: np.ndarray, sensitivity: float, epsilon: float) -> np.ndarray:
+    def add_noise_to_query(self, query_result: List, sensitivity: float, epsilon: float) -> List:
         """Add calibrated noise to query result."""
         return self.mechanism.add_noise(query_result, sensitivity, epsilon)
     

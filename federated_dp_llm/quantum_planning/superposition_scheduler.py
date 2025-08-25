@@ -8,7 +8,9 @@ optimal measurement/assignment occurs.
 
 import asyncio
 import time
-import numpy as np
+from .numpy_fallback import get_numpy_backend
+
+HAS_NUMPY, np = get_numpy_backend()
 from typing import Dict, List, Optional, Tuple, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -58,7 +60,7 @@ class SchedulingWaveFunction:
     """Global wave function for the scheduling system."""
     superposed_tasks: Dict[str, TaskSuperposition]
     global_phase: float = 0.0
-    entanglement_matrix: np.ndarray = field(default_factory=lambda: np.array([]))
+    entanglement_matrix: List = field(default_factory=lambda: np.array([]))
     total_amplitude: complex = complex(1.0, 0.0)
     normalization_constant: float = 1.0
 

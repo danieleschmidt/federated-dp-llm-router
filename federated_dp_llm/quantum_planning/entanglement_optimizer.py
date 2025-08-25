@@ -8,7 +8,9 @@ states between related tasks and resources.
 
 import asyncio
 import time
-import numpy as np
+from .numpy_fallback import get_numpy_backend
+
+HAS_NUMPY, np = get_numpy_backend()
 from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
 from enum import Enum
@@ -42,7 +44,7 @@ class ResourceEntanglement:
     
     # Quantum state information
     bell_state: str = "phi_plus"  # phi_plus, phi_minus, psi_plus, psi_minus
-    correlation_matrix: np.ndarray = field(default_factory=lambda: np.array([]))
+    correlation_matrix: List = field(default_factory=lambda: np.array([]))
     shared_measurements: Dict[str, float] = field(default_factory=dict)
     
     # Decoherence properties
@@ -126,7 +128,7 @@ class EntanglementOptimizer:
         
         # History and monitoring
         self.entanglement_history: List[Dict[str, Any]] = []
-        self.correlation_matrix_snapshots: List[Tuple[float, np.ndarray]] = []
+        self.correlation_matrix_snapshots: List[Tuple[float, List]] = []
         
     async def create_resource_entanglement(self,
                                          resource_pairs: List[Tuple[str, str]],

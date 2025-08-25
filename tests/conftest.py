@@ -8,7 +8,18 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Dict, Any
-import numpy as np
+try:
+    from federated_dp_llm.quantum_planning.numpy_fallback import get_numpy_backend
+    HAS_NUMPY, np = get_numpy_backend()
+except ImportError:
+    # Fallback for tests
+    class TestNP:
+        @staticmethod
+        def array(data): return list(data) if not isinstance(data, list) else data
+        @staticmethod
+        def mean(arr): return sum(arr) / len(arr)
+    np = TestNP()
+    HAS_NUMPY = False
 
 from federated_dp_llm.core.privacy_accountant import PrivacyAccountant, DPConfig
 from federated_dp_llm.routing.load_balancer import FederatedRouter
