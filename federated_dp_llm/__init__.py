@@ -1,46 +1,25 @@
 """
-Federated Differential Privacy LLM Router
+federated_dp_llm — Federated, Differentially-Private LLM Request Router.
 
-A production-ready system for serving privacy-budget-aware LLM shards across 
-distributed healthcare institutions with differential privacy guarantees.
+Routes queries to appropriate model backends while preserving privacy:
+  - RoutingPolicy       : classify queries (LOCAL / CLOUD / SENSITIVE)
+  - DPQuerySanitizer    : apply Laplace-mechanism DP before routing
+  - FederatedRouter     : route to stub backends, maintain routing table
+  - PrivacyBudgetTracker: per-user ε accounting with hard limits
+  - RouterMetrics       : latency, tier distribution, budget consumption
 """
 
-__version__ = "0.1.0"
-__author__ = "Daniel Schmidt"
-__email__ = "daniel@terragonlabs.com"
-
-from .core.privacy_accountant import PrivacyAccountant, DPConfig
-from .routing.load_balancer import FederatedRouter
-from .federation.client import HospitalNode, PrivateInferenceClient
-from .federation.server import FederatedTrainer
-from .security.compliance import BudgetManager
-from .quantum_planning import (
-    QuantumTaskPlanner,
-    QuantumState,
-    TaskPriority,
-    SuperpositionScheduler,
-    TaskSuperposition,
-    EntanglementOptimizer,
-    ResourceEntanglement,
-    InterferenceBalancer,
-    TaskInterference
-)
+from .policy import RoutingPolicy, RoutingTier
+from .sanitizer import DPQuerySanitizer
+from .router import FederatedRouter
+from .budget import PrivacyBudgetTracker
+from .metrics import RouterMetrics
 
 __all__ = [
-    "PrivacyAccountant",
-    "DPConfig", 
+    "RoutingPolicy",
+    "RoutingTier",
+    "DPQuerySanitizer",
     "FederatedRouter",
-    "HospitalNode",
-    "PrivateInferenceClient", 
-    "FederatedTrainer",
-    "BudgetManager",
-    "QuantumTaskPlanner",
-    "QuantumState",
-    "TaskPriority", 
-    "SuperpositionScheduler",
-    "TaskSuperposition",
-    "EntanglementOptimizer",
-    "ResourceEntanglement",
-    "InterferenceBalancer",
-    "TaskInterference",
+    "PrivacyBudgetTracker",
+    "RouterMetrics",
 ]
